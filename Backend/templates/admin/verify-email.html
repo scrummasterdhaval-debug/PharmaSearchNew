@@ -1,0 +1,19 @@
+{% extends "admin/auth_base.html" %}
+{% block title %}Confirm email{% endblock %}
+
+{% block card %}
+<div class="auth-status">
+    {% if success %}
+        <div class="badge ok" aria-hidden="true">✓</div>
+        <h2>Email confirmed</h2>
+        <p>{{ message }}</p>
+        <a href="/admin/login" class="auth-submit">Sign in</a>
+    {% else %}
+        <div class="badge bad" aria-hidden="true">✕</div>
+        <h2>That link didn't work</h2>
+        <p>{{ message }}</p>
+        <a href="/admin/register" class="auth-submit">Create an account</a>
+        <div class="auth-foot"><span>Already confirmed? <a href="/admin/login">Sign in</a></span></div>
+    {% endif %}
+</div>
+{% endblock %}

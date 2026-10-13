@@ -1,0 +1,25 @@
+# HTTPS for PharmaSearch. Caddy obtains and renews the certificate itself.
+# No account email is needed for that: renewal is automatic, and an email only
+# adds expiry warnings from the certificate authority. To have them, add a
+# global block with "email you@example.com" above the site.
+
+{$PHARMASEARCH_DOMAIN} {
+	encode zstd gzip
+
+	# A search or an export can take a couple of minutes; the proxy must not
+	# give up before the application answers.
+	reverse_proxy app:8080 {
+		header_up X-Forwarded-Proto https
+		transport http {
+			read_timeout 300s
+			write_timeout 300s
+		}
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 10MiB
+			roll_keep 10
+		}
+	}
+}

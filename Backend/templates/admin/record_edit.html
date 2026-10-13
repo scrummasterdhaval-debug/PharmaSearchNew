@@ -1,0 +1,119 @@
+{% extends "admin/page.html" %}
+{% import "admin/_macros.html" as ui %}
+{% block title %}Edit record{% endblock %}
+{% block heading %}{{ record.product or 'Registration' }}{% endblock %}
+{% block subheading %}{{ record.substance }} · {{ record.country }} · {{ record.source }} · record {{ record.id }}{% endblock %}
+{% block headaside %}<a class="link" href="/admin/records">← back to records</a>{% endblock %}
+
+{% block main %}
+<section class="panel">
+    <header>
+        <h2>Fields</h2>
+        <span class="hint">each change is saved as a manual assertion, not a silent overwrite</span>
+    </header>
+    <div class="panel-body">
+        <form method="post" action="/admin/records/{{ record.id }}">
+            <div class="field-grid">
+                {% for name, label in editable %}
+                    <div class="field">
+                        <label for="f-{{ name }}">{{ label }}</label>
+                        <input id="f-{{ name }}" type="text" name="{{ name }}" value="{{ record.get(name) or '' }}">
+                    </div>
+                {% endfor %}
+            </div>
+            <div style="margin-top:16px;display:flex;gap:10px;align-items:center">
+                <button class="btn-primary" type="submit">Save changes</button>
+                <span class="field-hint">Unchanged fields are ignored.</span>
+            </div>
+        </form>
+    </div>
+</section>
+
+<div class="panel-columns">
+    <section class="panel">
+        <header><h2>Manufacturers and sites</h2></header>
+        <table class="admin-table">
+            <thead><tr><th>Name</th><th>Site</th><th>Country</th><th>Role</th></tr></thead>
+            <tbody>
+            {% for item in record.manufacturers %}
+                <tr>
+                    <td>{{ item.name or '—' }}</td>
+                    <td class="truncate">{{ item.site_name or item.address or '—' }}</td>
+                    <td>{{ item.country or '—' }}</td>
+                    <td>{{ item.role }}</td>
+                </tr>
+            {% else %}
+                <tr><td colspan="4" class="empty">None recorded.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </section>
+
+    <section class="panel">
+        <header><h2>Documents</h2></header>
+        <table class="admin-table">
+            <thead><tr><th>Type</th><th>Regulator</th><th>Link</th></tr></thead>
+            <tbody>
+            {% for item in record.documents %}
+                <tr>
+                    <td>{{ item.document_type }}</td>
+                    <td>{{ item.source_regulator or '—' }}</td>
+                    <td class="truncate"><a class="link" href="{{ item.url }}" target="_blank" rel="noopener noreferrer">open</a></td>
+                </tr>
+            {% else %}
+                <tr><td colspan="3" class="empty">None recorded.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </section>
+</div>
+
+<section class="panel">
+    <header><h2>Evidence</h2><span class="hint">what each value is claimed on</span></header>
+    <div class="table-scroll">
+        <table class="admin-table">
+            <thead><tr><th>Field</th><th>Value</th><th>Regulator</th><th>How</th><th>Status</th><th>When</th></tr></thead>
+            <tbody>
+            {% for item in record.evidence %}
+                <tr>
+                    <td>{{ item.field_name }}</td>
+                    <td class="truncate">{{ item.value }}</td>
+                    <td>{{ item.source_regulator or '—' }}</td>
+                    <td class="mono">{{ item.extraction_method or '—' }}</td>
+                    <td>
+                        <span class="pill {{ 'neutral' if 'MANUAL' in (item.verification_status or '') else 'healthy' }}">
+                            {{ item.verification_status }}
+                        </span>
+                    </td>
+                    <td class="mono">{{ item.extracted_at[:19] }}</td>
+                </tr>
+            {% else %}
+                <tr><td colspan="6" class="empty">No evidence recorded for this registration.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="panel">
+    <header><h2>Edit history</h2></header>
+    <div class="table-scroll">
+        <table class="admin-table">
+            <thead><tr><th>When</th><th>Field</th><th>From</th><th>To</th><th>By</th></tr></thead>
+            <tbody>
+            {% for edit in record.edits %}
+                <tr>
+                    <td class="mono">{{ edit.edited_at[:19] }}</td>
+                    <td>{{ edit.field_name }}</td>
+                    <td class="truncate muted">{{ edit.old_value or '—' }}</td>
+                    <td class="truncate">{{ edit.new_value or '—' }}</td>
+                    <td>{{ edit.editor }}</td>
+                </tr>
+            {% else %}
+                <tr><td colspan="5" class="empty">This record has not been edited by hand.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

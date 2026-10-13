@@ -1,0 +1,100 @@
+{% extends "admin/page.html" %}
+{% import "admin/_macros.html" as ui %}
+{% block title %}Data{% endblock %}
+{% block heading %}Data management{% endblock %}
+{% block subheading %}Purge, prune and export. The two destructive actions preview before they run.{% endblock %}
+
+{% block main %}
+<section class="panel">
+    <header><h2>Export a slice</h2><span class="hint">up to {{ ui.count(export_limit) }} rows per workbook</span></header>
+    <div class="panel-body">
+        <form method="post" action="/admin/data/export" class="filter-row">
+            <input type="text" name="substance" placeholder="Active substance (optional)">
+            <select name="source">
+                <option value="">Any source</option>
+                {% for name in options.sources %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
+            </select>
+            <select name="country">
+                <option value="">Any country</option>
+                {% for name in options.countries %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
+            </select>
+            <button class="btn-primary" type="submit">Build workbook</button>
+        </form>
+        <p class="field-hint" style="margin-top:10px">
+            The workbook carries the Products sheet plus the Manufacturers, Documents and Field Evidence sheets.
+        </p>
+    </div>
+</section>
+
+<section class="panel danger">
+    <header><h2>Purge one source</h2><span class="hint">removes its registrations and their evidence</span></header>
+    <div class="panel-body">
+        {% if purge_preview %}
+            <div class="notice warn">
+                Purging <strong>{{ purge_source_name }}</strong> would remove
+                {{ ui.count(purge_preview.products) }} registrations,
+                {{ ui.count(purge_preview.evidence) }} evidence rows,
+                {{ ui.count(purge_preview.regulatory_documents) }} documents and
+                {{ ui.count(purge_preview.registration_organization_roles) }} roles.
+                Type the source name to confirm.
+            </div>
+            <form method="post" action="/admin/data/purge" class="filter-row">
+                <input type="hidden" name="source" value="{{ purge_source_name }}">
+                <input type="text" name="confirmation" placeholder="{{ purge_source_name }}" autocomplete="off" required>
+                <button class="btn-danger-solid" type="submit">Purge {{ purge_source_name }}</button>
+                <a class="link" href="/admin/data">Cancel</a>
+            </form>
+        {% else %}
+            <form method="get" action="/admin/data" class="filter-row">
+                <select name="purge_source" required>
+                    <option value="">Choose a source…</option>
+                    {% for row in source_counts %}
+                        <option value="{{ row.source }}">{{ row.source }} — {{ ui.count(row.rows) }} rows</option>
+                    {% endfor %}
+                </select>
+                <button class="btn-quiet-inline" type="submit">Preview</button>
+            </form>
+        {% endif %}
+    </div>
+</section>
+
+<section class="panel danger">
+    <header><h2>Prune stale registrations</h2><span class="hint">by how long since last checked</span></header>
+    <div class="panel-body">
+        {% if prune_preview %}
+            <div class="notice warn">
+                Pruning rows unchecked for over <strong>{{ prune_days }} days</strong> would remove
+                {{ ui.count(prune_preview.products) }} registrations and
+                {{ ui.count(prune_preview.evidence) }} evidence rows.
+                Type <strong class="mono">PRUNE</strong> to confirm.
+            </div>
+            <form method="post" action="/admin/data/prune" class="filter-row">
+                <input type="hidden" name="days" value="{{ prune_days }}">
+                <input type="text" name="confirmation" placeholder="PRUNE" autocomplete="off" required>
+                <button class="btn-danger-solid" type="submit">Prune {{ ui.count(prune_preview.products) }} rows</button>
+                <a class="link" href="/admin/data">Cancel</a>
+            </form>
+        {% else %}
+            <form method="get" action="/admin/data" class="filter-row">
+                <input type="number" name="prune_days" min="30" max="3650" value="365" required>
+                <span class="field-hint">days since last checked</span>
+                <button class="btn-quiet-inline" type="submit">Preview</button>
+            </form>
+        {% endif %}
+    </div>
+</section>
+
+<section class="panel">
+    <header><h2>Rows by source</h2></header>
+    <div class="table-scroll">
+        <table class="admin-table">
+            <thead><tr><th>Source</th><th class="num">Rows</th></tr></thead>
+            <tbody>
+            {% for row in source_counts %}
+                <tr><td>{{ row.source }}</td><td class="num">{{ ui.count(row.rows) }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

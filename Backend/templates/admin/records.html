@@ -1,0 +1,94 @@
+{% extends "admin/page.html" %}
+{% import "admin/_macros.html" as ui %}
+{% block title %}Records{% endblock %}
+{% block heading %}Records{% endblock %}
+{% block subheading %}{{ ui.count(total) }} registrations match · showing {{ records | length }}{% endblock %}
+
+{% block main %}
+<section class="panel">
+    <header><h2>Find a registration</h2></header>
+    <div class="panel-body">
+        <form method="get" action="/admin/records" class="filter-row">
+            <input type="text" name="q" value="{{ query }}" placeholder="Substance, product, company or registration number">
+            <select name="source">
+                <option value="">Any source</option>
+                {% for name in options.sources %}
+                    <option value="{{ name }}" {% if name == source %}selected{% endif %}>{{ name }}</option>
+                {% endfor %}
+            </select>
+            <select name="country">
+                <option value="">Any country</option>
+                {% for name in options.countries %}
+                    <option value="{{ name }}" {% if name == country %}selected{% endif %}>{{ name }}</option>
+                {% endfor %}
+            </select>
+            <button class="btn-primary" type="submit">Search</button>
+        </form>
+    </div>
+</section>
+
+<section class="panel">
+    <header>
+        <h2>Results</h2>
+        <span class="hint">
+            {% if offset > 0 %}<a class="link" href="?q={{ query }}&source={{ source }}&country={{ country }}&offset={{ [offset - limit, 0] | max }}">← previous</a>{% endif %}
+            {% if offset + limit < total %}<a class="link" href="?q={{ query }}&source={{ source }}&country={{ country }}&offset={{ offset + limit }}">next →</a>{% endif %}
+        </span>
+    </header>
+    <div class="table-scroll">
+        <table class="admin-table">
+            <thead>
+                <tr>
+                    <th>Substance</th><th>Product</th><th>Company</th><th>Country</th>
+                    <th>Source</th><th>Reg. number</th><th>Verification</th><th></th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for row in records %}
+                <tr>
+                    <td>{{ row.substance }}</td>
+                    <td><strong>{{ row.product }}</strong></td>
+                    <td class="truncate">{{ row.company }}</td>
+                    <td>{{ row.country }}</td>
+                    <td>{{ row.source }}</td>
+                    <td class="mono">{{ row.registration_number }}</td>
+                    <td>
+                        {% if row.verification_status and row.verification_status != 'UNVERIFIED' %}
+                            <span class="pill healthy">{{ row.verification_status }}</span>
+                        {% else %}
+                            <span class="pill empty">unverified</span>
+                        {% endif %}
+                    </td>
+                    <td><a class="link" href="/admin/records/{{ row.id }}">Edit</a></td>
+                </tr>
+            {% else %}
+                <tr><td colspan="8" class="empty">Nothing matched that search.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="panel">
+    <header><h2>Recent manual edits</h2><span class="hint">every override is logged</span></header>
+    <div class="table-scroll">
+        <table class="admin-table">
+            <thead><tr><th>When</th><th>Record</th><th>Field</th><th>From</th><th>To</th><th>By</th></tr></thead>
+            <tbody>
+            {% for edit in edits %}
+                <tr>
+                    <td class="mono">{{ edit.edited_at[:19] }}</td>
+                    <td><a class="link" href="/admin/records/{{ edit.product_detail_id }}">{{ edit.product or edit.product_detail_id }}</a></td>
+                    <td>{{ edit.field_name }}</td>
+                    <td class="truncate muted">{{ edit.old_value or '—' }}</td>
+                    <td class="truncate">{{ edit.new_value or '—' }}</td>
+                    <td>{{ edit.editor }}</td>
+                </tr>
+            {% else %}
+                <tr><td colspan="6" class="empty">No manual edits yet.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

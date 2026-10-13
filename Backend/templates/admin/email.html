@@ -1,0 +1,134 @@
+{% extends "admin/page.html" %}
+{% block title %}Email &amp; accounts{% endblock %}
+{% block heading %}Email &amp; accounts{% endblock %}
+{% block subheading %}Whether sign-up emails can be sent, and who is waiting to be let in.{% endblock %}
+
+{% block main %}
+<section class="panel">
+    <header><h2>How email is sent</h2><span class="hint">read from the service's settings</span></header>
+    <div class="panel-body">
+        {% if not mail.route %}
+            <div class="notice warn">
+                No mail route is configured, so no sign-up or reset email can be sent.
+                Set <code>BREVO_API_KEY</code> and <code>FROM_EMAIL</code>, or the SMTP settings.
+            </div>
+        {% endif %}
+        <table class="admin-table">
+            <tbody>
+                <tr><th>Route</th><td>{{ mail.route or "None" }}</td></tr>
+                <tr>
+                    <th>Sent from</th>
+                    <td>
+                        {{ mail.from_email or "Not set (FROM_EMAIL)" }}
+                        {% if mail.route and mail.sender_problem %}
+                            <div class="notice warn" style="margin-top:8px">{{ mail.sender_problem }}</div>
+                        {% endif %}
+                    </td>
+                </tr>
+                <tr><th>Links point to</th><td>{{ mail.base_url }}</td></tr>
+                {% if mail.key_set %}
+                <tr>
+                    <th>API key</th>
+                    <td>
+                        starts <code>{{ mail.key_prefix }}</code>, {{ mail.key_length }} characters
+                        {% if not mail.key_looks_whole %}
+                            <div class="notice warn" style="margin-top:8px">
+                                This does not look like a whole Brevo API key. One starts
+                                <code>xkeysib-</code> and is about 89 characters long. A key that starts
+                                <code>xsmtpsib-</code> is an SMTP key, and a shorter one is a cut-off copy:
+                                generate a new key and copy it from the window that shows it once.
+                            </div>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="panel">
+    <header><h2>Send a test email</h2><span class="hint">shows the mail service's own answer</span></header>
+    <div class="panel-body">
+        {% if test %}
+            <div class="notice {{ 'ok' if test.sent else 'warn' }}">
+                {% if test.sent %}Sent.{% else %}Not sent.{% endif %} {{ test.detail }}
+            </div>
+        {% endif %}
+        <form method="post" action="/admin/email/test" class="filter-row">
+            <input type="email" name="to" value="{{ test_to }}" placeholder="address to send the test to" required>
+            <button class="btn-primary" type="submit">Send test</button>
+        </form>
+    </div>
+</section>
+
+<section class="panel">
+    <header><h2>Waiting for activation</h2><span class="hint">signed up, address not confirmed</span></header>
+    <div class="panel-body">
+        {% if pending %}
+            <table class="admin-table">
+                <thead><tr><th>Account</th><th>Signed up (UTC)</th><th></th></tr></thead>
+                <tbody>
+                {% for person in pending %}
+                    <tr>
+                        <td>{{ person.username }}</td>
+                        <td>{{ person.created_at }}</td>
+                        <td>
+                            <form method="post" action="/admin/email/activate">
+                                <input type="hidden" name="username" value="{{ person.username }}">
+                                <button class="btn-primary" type="submit">Activate</button>
+                            </form>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            <p class="field-hint" style="margin-top:10px">
+                Activating lets the account sign in without the emailed link. It becomes a user, not an
+                admin.
+            </p>
+        {% else %}
+            <p class="field-hint">Nobody is waiting.</p>
+        {% endif %}
+    </div>
+</section>
+
+<section class="panel">
+    <header><h2>Accounts</h2><span class="hint">confirmed, and what each may do</span></header>
+    <div class="panel-body">
+        {% if accounts %}
+            <table class="admin-table">
+                <thead><tr><th>Account</th><th>Role</th><th>Last sign-in (UTC)</th><th></th></tr></thead>
+                <tbody>
+                {% for person in accounts %}
+                    <tr>
+                        <td>{{ person.username }}</td>
+                        <td>{{ "Admin" if person.role == "admin" else "User" }}</td>
+                        <td>{{ person.last_login or "never" }}</td>
+                        <td>
+                            <form method="post" action="/admin/email/role">
+                                <input type="hidden" name="username" value="{{ person.username }}">
+                                {% if person.role == "admin" %}
+                                    <input type="hidden" name="role" value="user">
+                                    <button class="btn-quiet" type="submit">Make user</button>
+                                {% else %}
+                                    <input type="hidden" name="role" value="admin">
+                                    <button class="btn-quiet" type="submit">Make admin</button>
+                                {% endif %}
+                            </form>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p class="field-hint">No registered accounts yet.</p>
+        {% endif %}
+        <p class="field-hint" style="margin-top:10px">
+            A user can search, read results and export. An admin can also open this area: harvests,
+            data management, record edits and these accounts. Promote only people you would trust with
+            deleting the data.
+        </p>
+    </div>
+</section>
+{% endblock %}

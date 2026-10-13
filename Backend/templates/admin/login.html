@@ -1,0 +1,40 @@
+{% extends "admin/auth_base.html" %}
+{% block title %}Sign in{% endblock %}
+
+{% block card %}
+<h2>Welcome back</h2>
+<p class="auth-sub">Sign in to search regulators worldwide.</p>
+
+{% if not configured %}
+    <div class="auth-alert error">
+        Sign-in is not set up on this server yet: no admin user name and password are configured.
+    </div>
+    <div class="auth-foot"><a href="/admin/register">Create an account</a></div>
+{% else %}
+    {% if error %}<div class="auth-alert error" role="alert">{{ error }}</div>{% endif %}
+    <form method="post" action="/admin/login" autocomplete="on">
+        <input type="hidden" name="next" value="{{ next_path }}">
+        <div class="auth-field">
+            <label for="username">Email or user name</label>
+            <div class="auth-input">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16v12H4z"/><path d="m4 7 8 6 8-6"/></svg>
+                <input id="username" name="username" type="text" value="{{ username }}"
+                       autocomplete="username" required autofocus placeholder="you@company.com">
+            </div>
+        </div>
+        <div class="auth-field">
+            <label for="password">Password</label>
+            <div class="auth-input">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+                <input id="password" name="password" type="password" autocomplete="current-password" required placeholder="Your password">
+                <button type="button" class="reveal" aria-label="Show password" aria-pressed="false">Show</button>
+            </div>
+        </div>
+        <button type="submit" class="auth-submit">Sign in</button>
+    </form>
+    <div class="auth-foot">
+        <a href="/admin/forgot-password">Forgot your password?</a>
+        <span>New here? <a href="/admin/register">Create an account</a></span>
+    </div>
+{% endif %}
+{% endblock %}

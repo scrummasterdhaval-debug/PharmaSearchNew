@@ -1,0 +1,9 @@
+{% macro meter(percent, invert=False) %}
+    {% set klass = 'good' if (percent >= 80) != invert else ('warn' if (percent >= 40) != invert else 'bad') %}
+    <div class="meter">
+        <div class="track"><div class="fill {{ klass }}" style="width: {{ percent }}%"></div></div>
+        <span class="pct">{{ percent }}%</span>
+    </div>
+{% endmacro %}
+
+{% macro count(value) %}{{ "{:,}".format(value or 0) }}{% endmacro %}

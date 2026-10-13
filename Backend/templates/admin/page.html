@@ -1,0 +1,36 @@
+{% extends "admin/base.html" %}
+
+{% block body %}
+<div class="admin-shell">
+    <nav class="admin-rail">
+        <div class="brand"><span class="dot"></span> PharmaSearch</div>
+        <a class="nav-item {% if active == 'dashboard' %}active{% endif %}" href="/admin">Dashboard</a>
+        <a class="nav-item {% if active == 'operations' %}active{% endif %}" href="/admin/operations">Operations</a>
+        <a class="nav-item {% if active == 'records' %}active{% endif %}" href="/admin/records">Records</a>
+        <a class="nav-item {% if active == 'data' %}active{% endif %}" href="/admin/data">Data</a>
+        <a class="nav-item {% if active == 'email' %}active{% endif %}" href="/admin/email">Email &amp; accounts</a>
+        <a class="nav-item" href="/connector_health_page">Connectors</a>
+        <a class="nav-item search-app-link" href="/" title="Search pharmaceuticals globally">🔍 Search app</a>
+        <div class="rail-foot">
+            <div style="margin-bottom:9px">Signed in as <strong style="color:#fff">{{ user }}</strong></div>
+            <form method="post" action="/admin/logout"><button class="btn-quiet" type="submit">Sign out</button></form>
+        </div>
+    </nav>
+
+    <main class="admin-main">
+        <div class="admin-head">
+            <div>
+                <h1>{% block heading %}{% endblock %}</h1>
+                <div class="sub">{% block subheading %}{% endblock %}</div>
+            </div>
+            {% block headaside %}{% endblock %}
+        </div>
+
+        {% for note in notices or [] %}
+            <div class="notice {{ note.kind }}">{{ note.text }}</div>
+        {% endfor %}
+
+        {% block main %}{% endblock %}
+    </main>
+</div>
+{% endblock %}

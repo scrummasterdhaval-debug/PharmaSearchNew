@@ -1,0 +1,52 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+Backend/.venv/
+
+# Local secrets: the admin sign-in, the session key and the deployment settings
+Backend/.env
+.env
+secrets.env
+
+# Local runtime data and generated exports
+Backend/pharmasearch.db
+Backend/pharmasearch.db.bak-*
+Backend/*.db-wal
+Backend/*.db-shm
+Backend/exports/
+Backend/*.xlsx
+
+# Scraper/debug artifacts
+Backend/*_debug.html
+Backend/*_page.html
+Backend/*_results.html
+Backend/*_results.png
+Backend/*_output*.txt
+Backend/mhra_*.html
+Backend/mhra_js_*.js
+Backend/medicines_ie_*.js
+Backend/forxiga_page.png
+
+# Test/runtime caches
+Backend/**/__pycache__/
+Backend/data/cdsco_india_approvals.json
+Backend/data/open_registers/
+
+# Bulk local artifacts kept outside the app tree
+outputs/
+zip.zip
+Backend/backups/
+Backend/logs/
+
+# Nightly database copies written by the deployment
+backups/
+
+# Claude Code worktrees are local checkouts, not part of this repository.
+Backend/.claude/worktrees/
+.claude/worktrees/
+
+# Logs and local databases never belong in the repository
+*.log
+*.sqlite
+Backend/backup/*.db

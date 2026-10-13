@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Connectors · PharmaSearch</title>
+<style>
+:root {
+    --bg-1: #1a1f3a; --bg-2: #0f1419;
+    --text: #e5e7eb; --muted: #9ca3af; --faint: #6b7280;
+    --line: rgba(255, 255, 255, 0.1); --glass: rgba(255, 255, 255, 0.06);
+    --blue: #60a5fa; --green: #34d399; --amber: #fbbf24; --red: #f87171; --grey: #94a3b8;
+}
+* { box-sizing: border-box; }
+body {
+    margin: 0; min-height: 100vh; color: var(--text);
+    background: linear-gradient(135deg, var(--bg-1) 0%, var(--bg-2) 100%) fixed;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background:
+        radial-gradient(circle at 15% 20%, rgba(96, 165, 250, 0.12) 0%, transparent 45%),
+        radial-gradient(circle at 85% 80%, rgba(52, 211, 153, 0.08) 0%, transparent 45%);
+}
+@keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes drift { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-14px) rotate(8deg); } }
+.molecule { position: fixed; width: 96px; height: 96px; opacity: .13; pointer-events: none; z-index: 0; animation: drift 8s ease-in-out infinite; }
+.molecule.a { top: 7%; right: 6%; }
+.molecule.b { bottom: 8%; left: 3%; animation-duration: 10s; animation-delay: 1.5s; }
+
+.wrap { position: relative; z-index: 1; max-width: 1280px; margin: 0 auto; padding: 32px 24px 56px; }
+header.top { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; justify-content: space-between; margin-bottom: 26px; animation: rise .5s ease-out both; }
+h1 {
+    margin: 0; font-size: clamp(1.9rem, 3.6vw, 2.7rem); font-weight: 800; letter-spacing: -0.03em;
+    background: linear-gradient(135deg, var(--blue), var(--green), var(--amber));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.lead { margin: 8px 0 0; color: #cbd5e1; max-width: 46em; line-height: 1.5; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.btn {
+    display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 10px;
+    color: var(--text); text-decoration: none; font-weight: 600; font-size: .92rem;
+    background: rgba(96, 165, 250, 0.14); border: 1px solid rgba(96, 165, 250, 0.3);
+    transition: transform .2s, background .2s;
+}
+.btn:hover { transform: translateY(-2px); background: rgba(96, 165, 250, 0.24); }
+.btn.primary { background: linear-gradient(135deg, #3b82f6, #10b981); border-color: transparent; }
+
+.tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin-bottom: 22px; }
+.tile {
+    padding: 16px 18px; border-radius: 14px; background: var(--glass); border: 1px solid var(--line);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); animation: rise .5s ease-out both;
+}
+.tile:nth-child(2) { animation-delay: .04s; } .tile:nth-child(3) { animation-delay: .08s; }
+.tile:nth-child(4) { animation-delay: .12s; } .tile:nth-child(5) { animation-delay: .16s; }
+.tile .num { font-size: 1.9rem; font-weight: 800; letter-spacing: -0.02em; }
+.tile .lbl { color: var(--muted); font-size: .85rem; margin-top: 2px; }
+.tile.ready .num { color: var(--green); } .tile.live .num { color: var(--blue); }
+.tile.attention .num { color: var(--amber); } .tile.countries .num { color: #c4b5fd; }
+
+.controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 16px; }
+.search {
+    flex: 1 1 260px; position: relative;
+}
+.search input {
+    width: 100%; padding: 12px 14px 12px 40px; border-radius: 10px; font-size: .95rem; color: #fff;
+    background: rgba(255, 255, 255, 0.07); border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.search input::placeholder { color: rgba(255, 255, 255, 0.4); }
+.search input:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.15); }
+.search svg { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; color: var(--faint); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+    padding: 8px 14px; border-radius: 999px; font-size: .85rem; font-weight: 600; cursor: pointer;
+    color: var(--muted); background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line);
+}
+.chip[aria-pressed="true"] { color: #fff; background: rgba(96, 165, 250, 0.22); border-color: rgba(96, 165, 250, 0.5); }
+.chip:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+.panel { border-radius: 16px; background: var(--glass); border: 1px solid var(--line); overflow: hidden; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+thead th {
+    text-align: left; padding: 13px 16px; font-size: .75rem; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--muted); background: rgba(255, 255, 255, 0.04); border-bottom: 1px solid var(--line); white-space: nowrap;
+}
+tbody td { padding: 14px 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); vertical-align: top; }
+tbody tr { transition: background .15s; }
+tbody tr:hover { background: rgba(96, 165, 250, 0.06); }
+tbody tr:last-child td { border-bottom: 0; }
+.name { font-weight: 700; color: #fff; }
+.sub { color: var(--faint); font-size: .78rem; margin-top: 3px; }
+.region { display: inline-block; padding: 3px 8px; border-radius: 6px; font-size: .75rem; font-weight: 700; color: #c4b5fd; background: rgba(167, 139, 250, 0.14); }
+.countries { color: #cbd5e1; max-width: 260px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: .78rem; font-weight: 700; white-space: nowrap; }
+.pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.pill.good { color: var(--green); background: rgba(52, 211, 153, 0.12); }
+.pill.info { color: var(--blue); background: rgba(96, 165, 250, 0.12); }
+.pill.warn { color: var(--amber); background: rgba(251, 191, 36, 0.12); }
+.pill.bad { color: var(--red); background: rgba(248, 113, 113, 0.12); }
+.pill.idle { color: var(--grey); background: rgba(148, 163, 184, 0.12); }
+.last { white-space: nowrap; }
+.last .when { color: var(--faint); font-size: .78rem; margin-top: 4px; }
+.notes { color: var(--muted); line-height: 1.45; max-width: 420px; }
+.error { color: #fca5a5; font-size: .8rem; margin-top: 4px; word-break: break-word; }
+.empty { padding: 34px; text-align: center; color: var(--muted); display: none; }
+
+@media (max-width: 1000px) { .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px) {
+    .wrap { padding: 22px 16px 40px; }
+    .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .panel { background: none; border: 0; backdrop-filter: none; -webkit-backdrop-filter: none; }
+    thead { display: none; }
+    table, tbody, tr, td { display: block; width: 100%; }
+    tbody tr { margin-bottom: 12px; padding: 14px 16px; border-radius: 14px; background: var(--glass); border: 1px solid var(--line); }
+    tbody td { padding: 6px 0; border: 0; }
+    td[data-label]::before { content: attr(data-label); display: block; font-size: .7rem; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); margin-bottom: 3px; }
+    .countries, .notes { max-width: none; }
+}
+@media (prefers-reduced-motion: reduce) { .molecule, header.top, .tile { animation: none; } }
+</style>
+</head>
+<body>
+<svg class="molecule a" viewBox="0 0 100 100" aria-hidden="true">
+    <circle cx="50" cy="30" r="8" fill="#60a5fa"/><circle cx="30" cy="65" r="8" fill="#34d399"/><circle cx="70" cy="65" r="8" fill="#fbbf24"/>
+    <line x1="50" y1="30" x2="30" y2="65" stroke="#60a5fa" stroke-width="2"/><line x1="50" y1="30" x2="70" y2="65" stroke="#60a5fa" stroke-width="2"/><line x1="30" y1="65" x2="70" y2="65" stroke="#34d399" stroke-width="2"/>
+</svg>
+<svg class="molecule b" viewBox="0 0 100 100" aria-hidden="true">
+    <circle cx="50" cy="50" r="7" fill="#34d399"/><circle cx="25" cy="30" r="7" fill="#60a5fa"/><circle cx="75" cy="30" r="7" fill="#fbbf24"/><circle cx="25" cy="70" r="7" fill="#f87171"/><circle cx="75" cy="70" r="7" fill="#60a5fa"/>
+    <line x1="50" y1="50" x2="25" y2="30" stroke="#34d399" stroke-width="2"/><line x1="50" y1="50" x2="75" y2="30" stroke="#34d399" stroke-width="2"/><line x1="50" y1="50" x2="25" y2="70" stroke="#34d399" stroke-width="2"/><line x1="50" y1="50" x2="75" y2="70" stroke="#34d399" stroke-width="2"/>
+</svg>
+
+{% set good = ["ready", "ready_view_only"] %}
+{% set bad = ["download_failed", "manual_parser_needed"] %}
+{% set ns = namespace(ready=0, live=0, attention=0, countries=[]) %}
+{% for row in rows %}
+    {% if row.status in good %}{% set ns.ready = ns.ready + 1 %}
+    {% elif row.status == "live" %}{% set ns.live = ns.live + 1 %}
+    {% else %}{% set ns.attention = ns.attention + 1 %}{% endif %}
+    {% for country in row.countries or [] %}{% if country not in ns.countries %}{% set ns.countries = ns.countries + [country] %}{% endif %}{% endfor %}
+{% endfor %}
+
+<div class="wrap">
+    <header class="top">
+        <div>
+            <h1>{{ "Connector health" if view == "health" else "Connectors" }}</h1>
+            <p class="lead">
+                Every regulator PharmaSearch reads from: the registers it downloads whole, the ones it asks at search time,
+                and how each one answered most recently.
+            </p>
+        </div>
+        <div class="actions">
+            <a class="btn" href="/">← Search</a>
+            {% if user_is_admin %}<a class="btn primary" href="/admin">Admin dashboard</a>{% endif %}
+        </div>
+    </header>
+
+    <section class="tiles" aria-label="Summary">
+        <div class="tile"><div class="num">{{ rows|length }}</div><div class="lbl">Connectors</div></div>
+        <div class="tile ready"><div class="num">{{ ns.ready }}</div><div class="lbl">Ready</div></div>
+        <div class="tile live"><div class="num">{{ ns.live }}</div><div class="lbl">Asked live</div></div>
+        <div class="tile attention"><div class="num">{{ ns.attention }}</div><div class="lbl">Partial or failing</div></div>
+        <div class="tile countries"><div class="num">{{ ns.countries|length }}</div><div class="lbl">Countries covered</div></div>
+    </section>
+
+    <div class="controls">
+        <label class="search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input id="filter-text" type="search" placeholder="Search by source or country" aria-label="Search by source or country">
+        </label>
+        <div class="chips" role="group" aria-label="Filter by status">
+            <button class="chip" type="button" data-filter="all" aria-pressed="true">All</button>
+            <button class="chip" type="button" data-filter="good" aria-pressed="false">Ready</button>
+            <button class="chip" type="button" data-filter="info" aria-pressed="false">Live</button>
+            <button class="chip" type="button" data-filter="attention" aria-pressed="false">Needs attention</button>
+        </div>
+    </div>
+
+    <div class="panel">
+        <table>
+            <thead>
+                <tr><th>Source</th><th>Region</th><th>Countries</th><th>Status</th><th>Last check</th><th>Notes</th></tr>
+            </thead>
+            <tbody id="rows">
+            {% for row in rows %}
+                {% if row.status in good %}{% set kind = "good" %}{% set label = "View only" if row.status == "ready_view_only" else "Ready" %}
+                {% elif row.status == "live" %}{% set kind = "info" %}{% set label = "Live search" %}
+                {% elif row.status in bad %}{% set kind = "bad" %}{% set label = "Download failed" if row.status == "download_failed" else "Not available" %}
+                {% elif row.status == "not_downloaded_yet" %}{% set kind = "idle" %}{% set label = "Not downloaded yet" %}
+                {% else %}{% set kind = "warn" %}{% set label = row.status|replace("_", " ")|capitalize %}{% endif %}
+                {% set last = (row.last_status or "not checked")|lower %}
+                {% if last == "success" %}{% set last_kind = "good" %}{% set last_label = "Answered" %}
+                {% elif last == "not checked" %}{% set last_kind = "idle" %}{% set last_label = "Not asked yet" %}
+                {% elif last in ["not_published", "no_results"] %}{% set last_kind = "idle" %}{% set last_label = "Nothing published" %}
+                {% elif last == "source_unsupported" %}{% set last_kind = "warn" %}{% set last_label = "Link only" %}
+                {% else %}{% set last_kind = "bad" %}{% set last_label = last|replace("_", " ")|capitalize %}{% endif %}
+                <tr data-kind="{{ 'attention' if kind in ['warn', 'bad', 'idle'] else kind }}"
+                    data-text="{{ (row.name ~ ' ' ~ (row.countries or [])|join(' ') ~ ' ' ~ row.region)|lower }}">
+                    <td data-label="Source">
+                        <div class="name">{{ row.name }}</div>
+                        <div class="sub">{{ "Downloaded register" if row.mode == "open_register" else (row.mode or "")|replace("_", " ") }}</div>
+                    </td>
+                    <td data-label="Region"><span class="region">{{ row.region }}</span></td>
+                    <td data-label="Countries"><div class="countries" title="{{ (row.countries or [])|join(', ') }}">{{ (row.countries or [])|join(", ") }}</div></td>
+                    <td data-label="Status"><span class="pill {{ kind }}">{{ label }}</span></td>
+                    <td data-label="Last check" class="last">
+                        <span class="pill {{ last_kind }}">{{ last_label }}{% if row.last_records not in ["", None] and last == "success" %} · {{ row.last_records }}{% endif %}</span>
+                        {% if row.last_checked %}<div class="when">{{ row.last_checked }}</div>{% endif %}
+                        {% if row.last_error %}<div class="error">{{ row.last_error[:140] }}</div>{% endif %}
+                    </td>
+                    <td data-label="Notes"><div class="notes">{{ row.notes }}</div></td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <div class="empty" id="empty">No connector matches that search.</div>
+    </div>
+</div>
+
+<script>
+(function () {
+    var text = document.getElementById('filter-text');
+    var chips = document.querySelectorAll('.chip');
+    var rows = document.querySelectorAll('#rows tr');
+    var empty = document.getElementById('empty');
+    var filter = 'all';
+    function apply() {
+        var query = text.value.trim().toLowerCase(), shown = 0;
+        rows.forEach(function (row) {
+            var visible = (filter === 'all' || row.getAttribute('data-kind') === filter)
+                && (!query || row.getAttribute('data-text').indexOf(query) !== -1);
+            row.style.display = visible ? '' : 'none';
+            if (visible) { shown += 1; }
+        });
+        empty.style.display = shown ? 'none' : 'block';
+    }
+    text.addEventListener('input', apply);
+    chips.forEach(function (chip) {
+        chip.addEventListener('click', function () {
+            chips.forEach(function (other) { other.setAttribute('aria-pressed', 'false'); });
+            chip.setAttribute('aria-pressed', 'true');
+            filter = chip.getAttribute('data-filter');
+            apply();
+        });
+    });
+}());
+</script>
+</body>
+</html>

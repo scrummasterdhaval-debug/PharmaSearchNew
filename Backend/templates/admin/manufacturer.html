@@ -1,0 +1,490 @@
+{% extends "admin/base.html" %}
+{% block title %}Manufacturer Lookup{% endblock %}
+
+{% block body %}
+<style>
+@keyframes float {
+    0%, 100% { transform: translateY(0px) rotate(0deg); }
+    50% { transform: translateY(-25px) rotate(8deg); }
+}
+
+@keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 0 20px rgba(74, 144, 226, 0.4), 0 0 40px rgba(16, 185, 129, 0.2); }
+    50% { box-shadow: 0 0 40px rgba(74, 144, 226, 0.7), 0 0 80px rgba(16, 185, 129, 0.4); }
+}
+
+@keyframes shimmer {
+    0% { background-position: -1000px 0; }
+    100% { background-position: 1000px 0; }
+}
+
+@keyframes rotate-molecule {
+    0% { transform: rotateZ(0deg); }
+    100% { transform: rotateZ(360deg); }
+}
+
+@keyframes bounce-in {
+    0% { opacity: 0; transform: scale(0.5) translateY(20px); }
+    100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes slide-in {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes color-shift {
+    0% { color: #4a90e2; }
+    33% { color: #10b981; }
+    66% { color: #f59e0b; }
+    100% { color: #4a90e2; }
+}
+
+.hero-molecules {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    height: 180px;
+    margin-bottom: 32px;
+    background: linear-gradient(135deg, rgba(74, 144, 226, 0.15) 0%, rgba(16, 185, 129, 0.15) 50%, rgba(245, 158, 11, 0.1) 100%);
+    border-radius: 16px;
+    border: 2px solid rgba(74, 144, 226, 0.3);
+    overflow: hidden;
+    position: relative;
+    box-shadow: 0 20px 60px rgba(74, 144, 226, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.hero-molecules::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background:
+        radial-gradient(circle at 15% 30%, rgba(74, 144, 226, 0.1) 0%, transparent 40%),
+        radial-gradient(circle at 85% 70%, rgba(16, 185, 129, 0.1) 0%, transparent 40%),
+        radial-gradient(circle at 50% 100%, rgba(245, 158, 11, 0.05) 0%, transparent 50%);
+    pointer-events: none;
+    animation: shimmer 3s infinite;
+}
+
+.molecule {
+    width: 100px;
+    height: 100px;
+    animation: float 4s ease-in-out infinite, pulse-glow 2.5s ease-in-out infinite;
+    z-index: 1;
+    filter: drop-shadow(0 0 10px rgba(74, 144, 226, 0.5));
+}
+
+.molecule:nth-child(1) { animation-delay: 0s, 0s; }
+.molecule:nth-child(2) { animation-delay: 0.8s, 0.4s; animation: float 4.5s ease-in-out infinite, pulse-glow 2.5s ease-in-out infinite, rotate-molecule 8s linear infinite; }
+.molecule:nth-child(3) { animation-delay: 1.5s, 0.8s; }
+
+.manufacturer-panel {
+    margin-bottom: 24px;
+    animation: slide-in 0.6s ease-out;
+}
+
+.action-button {
+    display: inline-block;
+    padding: 8px 16px;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+    margin-right: 8px;
+}
+
+.approve-button {
+    background: #10b981;
+    color: white;
+}
+
+.approve-button:hover {
+    background: #059669;
+}
+
+.reject-button {
+    background: #ef4444;
+    color: white;
+}
+
+.reject-button:hover {
+    background: #dc2626;
+}
+
+.run-button {
+    background: linear-gradient(135deg, #4a90e2 0%, #357abd 100%);
+    color: white;
+    padding: 12px 24px;
+    font-size: 16px;
+}
+
+.run-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 25px rgba(74, 144, 226, 0.3);
+}
+
+.suggestion-card {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.07) 0%, rgba(74, 144, 226, 0.05) 100%);
+    border: 1px solid rgba(74, 144, 226, 0.2);
+    border-radius: 10px;
+    padding: 18px;
+    margin-bottom: 12px;
+    backdrop-filter: blur(10px);
+    transition: all 0.3s ease;
+    animation: slide-in 0.5s ease-out;
+}
+
+.suggestion-card:hover {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(74, 144, 226, 0.08) 100%);
+    border-color: rgba(74, 144, 226, 0.4);
+    transform: translateX(4px);
+    box-shadow: 0 8px 24px rgba(74, 144, 226, 0.1);
+}
+
+.suggestion-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    margin-bottom: 12px;
+}
+
+.suggestion-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #fff;
+    margin: 0;
+}
+
+.confidence-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.confidence-high {
+    background: #10b981;
+    color: white;
+}
+
+.confidence-medium {
+    background: #f59e0b;
+    color: white;
+}
+
+.confidence-low {
+    background: #ef4444;
+    color: white;
+}
+
+.suggestion-details {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.detail-row {
+    display: flex;
+    flex-direction: column;
+}
+
+.detail-label {
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 12px;
+    margin-bottom: 4px;
+}
+
+.detail-value {
+    color: #fff;
+    font-weight: 500;
+}
+
+.suggestion-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding-top: 12px;
+}
+
+.control-panel {
+    background: linear-gradient(135deg, rgba(74, 144, 226, 0.12) 0%, rgba(16, 185, 129, 0.12) 50%, rgba(245, 158, 11, 0.05) 100%);
+    border: 2px solid rgba(74, 144, 226, 0.25);
+    border-radius: 16px;
+    padding: 28px;
+    margin-bottom: 24px;
+    backdrop-filter: blur(15px);
+    box-shadow: 0 20px 60px rgba(74, 144, 226, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    animation: bounce-in 0.8s ease-out;
+}
+
+.stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.stat-item {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(74, 144, 226, 0.2);
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+    transition: all 0.3s ease;
+}
+
+.stat-item:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(74, 144, 226, 0.4);
+    transform: translateY(-2px);
+}
+
+.stat-number {
+    font-size: 32px;
+    font-weight: 700;
+    background: linear-gradient(135deg, #4a90e2, #10b981);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 8px;
+}
+
+.stat-label {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.7);
+    font-weight: 500;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: rgba(255, 255, 255, 0.6);
+    background: linear-gradient(135deg, rgba(74, 144, 226, 0.05) 0%, rgba(16, 185, 129, 0.05) 100%);
+    border: 1px solid rgba(74, 144, 226, 0.15);
+    border-radius: 12px;
+    animation: slide-in 0.6s ease-out;
+}
+
+.empty-state-icon {
+    font-size: 64px;
+    margin-bottom: 16px;
+    animation: float 3s ease-in-out infinite;
+}
+
+.reject-form {
+    display: none;
+    margin-top: 12px;
+    padding: 12px;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: 4px;
+}
+
+.reject-form.active {
+    display: block;
+}
+
+.reject-form textarea {
+    width: 100%;
+    padding: 8px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    color: white;
+    font-size: 13px;
+    resize: vertical;
+    box-sizing: border-box;
+}
+
+.reject-form textarea::placeholder {
+    color: rgba(255, 255, 255, 0.4);
+}
+</style>
+
+<div style="padding: 24px;">
+    <!-- Header Section -->
+    <div style="margin-bottom: 32px; animation: slide-in 0.6s ease-out;">
+        <div style="display: flex; align-items: center; margin-bottom: 12px;">
+            <div style="font-size: 48px; margin-right: 16px; animation: bounce-in 0.8s ease-out;">💊</div>
+            <div>
+                <h1 style="margin: 0; font-size: 36px; font-weight: 800; background: linear-gradient(135deg, #4a90e2, #10b981, #f59e0b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">
+                    Manufacturer Lookup
+                </h1>
+                <p style="margin: 4px 0 0; color: rgba(255, 255, 255, 0.6); font-size: 14px;">
+                    🤖 AI-powered pharmaceutical manufacturer discovery & verification
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats Overview Bar -->
+    <div style="display: flex; gap: 16px; margin-bottom: 24px; overflow-x: auto; padding: 8px 0;">
+        <div style="background: linear-gradient(135deg, rgba(74, 144, 226, 0.2), rgba(74, 144, 226, 0.05)); border: 1px solid rgba(74, 144, 226, 0.3); border-radius: 8px; padding: 12px 16px; min-width: 160px; backdrop-filter: blur(10px);">
+            <div style="font-size: 11px; color: rgba(255, 255, 255, 0.6); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">Data Sources</div>
+            <div style="font-size: 20px; font-weight: 700; color: #4a90e2;">5</div>
+        </div>
+        <div style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(16, 185, 129, 0.05)); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 12px 16px; min-width: 160px; backdrop-filter: blur(10px);">
+            <div style="font-size: 11px; color: rgba(255, 255, 255, 0.6); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">Confidence Range</div>
+            <div style="font-size: 20px; font-weight: 700; color: #10b981;">70-95%</div>
+        </div>
+        <div style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(245, 158, 11, 0.05)); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; padding: 12px 16px; min-width: 160px; backdrop-filter: blur(10px);">
+            <div style="font-size: 11px; color: rgba(255, 255, 255, 0.6); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">Processing</div>
+            <div style="font-size: 20px; font-weight: 700; color: #f59e0b;">Batch Mode</div>
+        </div>
+    </div>
+
+    <!-- Animated Molecules Hero -->
+    <div class="hero-molecules">
+        <svg class="molecule" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="50" cy="30" r="8" fill="#4a90e2"/>
+            <circle cx="30" cy="65" r="8" fill="#10b981"/>
+            <circle cx="70" cy="65" r="8" fill="#f59e0b"/>
+            <line x1="50" y1="30" x2="30" y2="65" stroke="#4a90e2" stroke-width="2"/>
+            <line x1="50" y1="30" x2="70" y2="65" stroke="#4a90e2" stroke-width="2"/>
+            <line x1="30" y1="65" x2="70" y2="65" stroke="#10b981" stroke-width="2"/>
+        </svg>
+        <svg class="molecule" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="50" cy="50" r="6" fill="#10b981"/>
+            <circle cx="30" cy="35" r="6" fill="#4a90e2"/>
+            <circle cx="70" cy="35" r="6" fill="#f59e0b"/>
+            <circle cx="30" cy="65" r="6" fill="#f59e0b"/>
+            <circle cx="70" cy="65" r="6" fill="#4a90e2"/>
+            <line x1="50" y1="50" x2="30" y2="35" stroke="#10b981" stroke-width="1.5"/>
+            <line x1="50" y1="50" x2="70" y2="35" stroke="#10b981" stroke-width="1.5"/>
+            <line x1="50" y1="50" x2="30" y2="65" stroke="#10b981" stroke-width="1.5"/>
+            <line x1="50" y1="50" x2="70" y2="65" stroke="#10b981" stroke-width="1.5"/>
+        </svg>
+        <svg class="molecule" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="50" cy="20" r="7" fill="#f59e0b"/>
+            <circle cx="20" cy="50" r="7" fill="#4a90e2"/>
+            <circle cx="50" cy="50" r="7" fill="#10b981"/>
+            <circle cx="80" cy="50" r="7" fill="#f59e0b"/>
+            <circle cx="50" cy="80" r="7" fill="#4a90e2"/>
+            <line x1="50" y1="20" x2="20" y2="50" stroke="#f59e0b" stroke-width="2"/>
+            <line x1="50" y1="20" x2="50" y2="50" stroke="#f59e0b" stroke-width="2"/>
+            <line x1="50" y1="20" x2="80" y2="50" stroke="#f59e0b" stroke-width="2"/>
+            <line x1="20" y1="50" x2="50" y2="50" stroke="#4a90e2" stroke-width="2"/>
+            <line x1="50" y1="50" x2="80" y2="50" stroke="#10b981" stroke-width="2"/>
+            <line x1="50" y1="50" x2="50" y2="80" stroke="#10b981" stroke-width="2"/>
+        </svg>
+    </div>
+
+    <!-- Control Panel -->
+    <div class="control-panel">
+        <div class="stats">
+            <div class="stat-item">
+                <div class="stat-number">{{ pending_count }}</div>
+                <div class="stat-label">Pending Suggestions</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number">8,280</div>
+                <div class="stat-label">Products Missing Manufacturer</div>
+            </div>
+        </div>
+
+        <form method="post" action="/admin/manufacturer/run-lookup" style="display: inline;">
+            <button type="submit" class="run-button">🔍 Run Manufacturer Lookup (Batch Mode)</button>
+        </form>
+        <p style="font-size: 13px; color: rgba(255, 255, 255, 0.6); margin: 12px 0 0;">
+            <strong>Note:</strong> Full scan of 8,280 products takes 4-6 hours. Runs in background batches (default 50 products/run).
+            Check back periodically for new suggestions. Uses 5 data sources: OpenFDA, DrugBank, GS1, UNICHEM, Company websites.
+        </p>
+    </div>
+
+    <!-- Suggestions List -->
+    {% if suggestions %}
+        <div class="manufacturer-panel">
+            <h2 style="margin: 0 0 16px; font-size: 18px; color: rgba(255, 255, 255, 0.9);">
+                Pending Suggestions ({{ pending_count }})
+            </h2>
+
+            {% for suggestion in suggestions %}
+                <div class="suggestion-card">
+                    <div class="suggestion-header">
+                        <div>
+                            <p class="suggestion-title">{{ suggestion.product_name }}</p>
+                            <p style="margin: 4px 0 0; font-size: 12px; color: rgba(255, 255, 255, 0.6);">
+                                Licence Holder: {{ suggestion.licence_holder }}
+                            </p>
+                        </div>
+                        <div class="confidence-badge {% if suggestion.confidence_score >= 0.9 %}confidence-high{% elif suggestion.confidence_score >= 0.7 %}confidence-medium{% else %}confidence-low{% endif %}">
+                            {{ "%.0f"|format(suggestion.confidence_score * 100) }}% Match
+                        </div>
+                    </div>
+
+                    <div class="suggestion-details">
+                        <div class="detail-row">
+                            <div class="detail-label">Suggested Manufacturer</div>
+                            <div class="detail-value">{{ suggestion.manufacturer_name }}</div>
+                        </div>
+                        <div class="detail-row">
+                            <div class="detail-label">Country</div>
+                            <div class="detail-value">{{ suggestion.manufacturer_country or 'Not specified' }}</div>
+                        </div>
+                        <div class="detail-row">
+                            <div class="detail-label">Source</div>
+                            <div class="detail-value">{{ suggestion.suggestion_data.get('source', 'Unknown') }}</div>
+                        </div>
+                        <div class="detail-row">
+                            <div class="detail-label">Product Source</div>
+                            <div class="detail-value">{{ suggestion.source }}</div>
+                        </div>
+                    </div>
+
+                    <div class="suggestion-actions">
+                        <form method="post" action="/admin/manufacturer/approve/{{ suggestion.suggestion_id }}" style="margin: 0;">
+                            <button type="submit" class="action-button approve-button">✓ Approve</button>
+                        </form>
+
+                        <button type="button" class="action-button reject-button" onclick="toggleRejectForm(this)">
+                            ✕ Reject
+                        </button>
+                    </div>
+
+                    <div class="reject-form">
+                        <form method="post" action="/admin/manufacturer/reject/{{ suggestion.suggestion_id }}" style="margin: 0;">
+                            <p style="margin: 0 0 8px 0; font-size: 13px; color: rgba(255, 255, 255, 0.8);">
+                                Why are you rejecting this?
+                            </p>
+                            <textarea name="reason" placeholder="Optional: Incorrect manufacturer, source not trustworthy, etc." rows="3"></textarea>
+                            <div style="margin-top: 8px;">
+                                <button type="submit" class="action-button reject-button">Confirm Rejection</button>
+                                <button type="button" class="action-button" style="background: rgba(255, 255, 255, 0.2); color: white;" onclick="toggleRejectForm(this.closest('.reject-form'))">
+                                    Cancel
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <div class="empty-state-icon">📭</div>
+            <p>No pending suggestions yet.</p>
+            <p style="font-size: 13px; color: rgba(255, 255, 255, 0.5);">
+                Run the lookup above to generate manufacturer suggestions from public sources.
+            </p>
+        </div>
+    {% endif %}
+</div>
+
+<script>
+function toggleRejectForm(element) {
+    const form = element.closest('.suggestion-actions').nextElementSibling;
+    if (form && form.classList.contains('reject-form')) {
+        form.classList.toggle('active');
+    }
+}
+</script>
+{% endblock %}

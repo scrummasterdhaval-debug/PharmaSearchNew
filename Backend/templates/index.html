@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PharmaSearch</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; }
+
+        @keyframes slide-down {
+            from { opacity: 0; transform: translateY(-30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        body {
+            background: linear-gradient(135deg, #1a1f3a 0%, #0f1419 100%);
+            color: #e5e7eb;
+            min-height: 100vh;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background:
+                radial-gradient(circle at 20% 30%, rgba(96, 165, 250, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 70%, rgba(34, 197, 94, 0.08) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        /* A slim bar: the name on the left, the account on the right, the
+           admin's shortcuts between, so the search starts near the top. */
+        .topbar {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            padding: 14px 28px;
+            background: rgba(255, 255, 255, 0.03);
+            border-bottom: 1px solid rgba(96, 165, 250, 0.15);
+            backdrop-filter: blur(10px);
+            animation: slide-down 0.6s ease-out;
+        }
+        .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+        .brand-logo { width: 40px; height: 40px; flex: 0 0 auto; filter: drop-shadow(0 0 10px rgba(52, 211, 153, 0.35)); }
+        .brand-name {
+            font-size: 24px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            line-height: 1.1;
+            background: linear-gradient(135deg, #60a5fa, #34d399, #fbbf24);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .brand-tag { font-size: 13px; color: rgba(255, 255, 255, 0.6); }
+        .admin-links { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+        .admin-links a {
+            padding: 7px 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #93c5fd;
+            text-decoration: none;
+            background: rgba(96, 165, 250, 0.12);
+            border: 1px solid rgba(96, 165, 250, 0.25);
+            transition: background 0.2s, transform 0.2s;
+        }
+        .admin-links a:hover { background: rgba(96, 165, 250, 0.22); transform: translateY(-1px); }
+        .account { display: flex; align-items: center; gap: 10px; margin: 0 0 0 auto; min-width: 0; }
+        .admin-links + .account { margin-left: 8px; }
+        .account .who {
+            color: #e5e7eb;
+            font-weight: 600;
+            font-size: 14px;
+            max-width: 260px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .account .signout {
+            background: rgba(96, 165, 250, 0.2);
+            border: 1px solid rgba(96, 165, 250, 0.3);
+            color: #60a5fa;
+        }
+        .account .signout:hover { background: rgba(96, 165, 250, 0.3); color: #93c5fd; }
+        @media (max-width: 900px) {
+            .topbar { flex-wrap: wrap; padding: 12px 16px; gap: 10px; }
+            .admin-links { order: 3; width: 100%; margin-left: 0; }
+            .account { margin-left: auto; }
+            .brand-tag { display: none; }
+            .account .who { max-width: 150px; }
+        }
+
+        .search-card {
+            background: linear-gradient(135deg, rgba(96, 165, 250, 0.12) 0%, rgba(34, 197, 94, 0.08) 100%);
+            border: 2px solid rgba(96, 165, 250, 0.25);
+            border-radius: 16px;
+            padding: 40px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            animation: slide-down 0.8s ease-out;
+            animation-delay: 0.2s;
+        }
+
+        .form-control, .form-select {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(96, 165, 250, 0.2);
+            color: #e5e7eb;
+            transition: all 0.3s ease;
+        }
+
+        /* The open list of a select is drawn by the browser, white unless
+           told otherwise, and the options inherited the light text colour:
+           country names were white on white. */
+        .form-select {
+            color-scheme: dark;
+        }
+
+        .form-select option {
+            background-color: #1a1f3a;
+            color: #e5e7eb;
+        }
+
+        .form-control:focus, .form-select:focus {
+            background: rgba(255, 255, 255, 0.12);
+            border-color: #60a5fa;
+            box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
+            color: #e5e7eb;
+        }
+
+        .form-control::placeholder {
+            color: rgba(255, 255, 255, 0.4);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #4a90e2 0%, #357abd 100%);
+            border: none;
+            transition: all 0.3s ease;
+            box-shadow: 0 10px 25px rgba(74, 144, 226, 0.2);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 35px rgba(74, 144, 226, 0.4);
+        }
+
+        .form-label {
+            color: rgba(255, 255, 255, 0.8);
+            font-weight: 600;
+        }
+
+        .form-check-label {
+            color: rgba(255, 255, 255, 0.7);
+        }
+    </style>
+</head>
+<body>
+
+<header class="topbar">
+    <div class="brand">
+        <svg class="brand-logo" viewBox="0 0 64 64" aria-hidden="true">
+            <defs><linearGradient id="brandPill" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#60a5fa"/><stop offset="100%" stop-color="#34d399"/></linearGradient></defs>
+            <rect x="8" y="22" width="48" height="20" rx="10" transform="rotate(-35 32 32)" fill="url(#brandPill)"/>
+        </svg>
+        <div>
+            <div class="brand-name">PharmaSearch</div>
+            <div class="brand-tag">Global pharmaceutical regulatory search</div>
+        </div>
+    </div>
+    {% if user_is_admin %}
+    <nav class="admin-links" aria-label="Admin">
+        <a href="/admin">📊 Admin dashboard</a>
+        <a href="/admin/operations">🔄 Harvest data</a>
+        <a href="/catalogue">📚 Catalogue</a>
+        <a href="/connector_health_page">📡 Connectors</a>
+    </nav>
+    {% endif %}
+    {% if user %}
+    <form method="post" action="/admin/logout" class="account">
+        <span class="who" title="{{ user }}">{{ user }}</span>
+        <button class="btn btn-sm signout" type="submit">Sign out</button>
+    </form>
+    {% endif %}
+</header>
+
+<div class="container mt-3">
+    <div class="search-card" style="max-width: 900px; margin: 0 auto;">
+        <h2 style="font-size: 28px; font-weight: 700; margin-bottom: 24px; text-align: center;">
+            Search Regulatory Databases
+        </h2>
+
+        <form action="/search_page" method="get">
+            <input type="hidden" name="live" value="true">
+            <input type="hidden" name="page" value="1">
+            <input type="hidden" name="page_size" value="50">
+
+            <!-- Substance Input -->
+            <div class="mb-4">
+                <label class="form-label">🔬 Active Substance</label>
+                <input
+                    type="text"
+                    name="substance"
+                    class="form-control"
+                    required
+                    style="font-size: 16px; padding: 12px 16px;"
+                    placeholder="e.g. metformin, atorvastatin, semaglutide">
+            </div>
+
+            <!-- Filters Row -->
+            <div class="row g-3 mb-4">
+                <div class="col-md-6">
+                    <label class="form-label">🌍 Country Filter</label>
+                    <select class="form-select" id="country" name="country" style="padding: 10px 12px;">
+                        <option value="">All countries</option>
+                        {% for country in country_options %}
+                        <option value="{{ country }}">{{ country }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">🗺️ Region Filter</label>
+                    <select class="form-select" id="region" name="region" style="padding: 10px 12px;">
+                        <option value="">All regions</option>
+                        {% for region in region_options %}
+                        <option value="{{ region }}">{{ region }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <!-- Sources Section -->
+            <div class="mb-4">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                    <label class="form-label mb-0">📡 Data Sources</label>
+                    <div style="display: flex; gap: 8px;">
+                        <button type="button" class="btn btn-sm" id="select-all-sources" style="background: rgba(96, 165, 250, 0.2); border: 1px solid rgba(96, 165, 250, 0.3); color: #60a5fa; transition: all 0.3s ease; padding: 6px 12px;">Select all</button>
+                        <button type="button" class="btn btn-sm" id="select-fast-sources" style="background: rgba(52, 211, 153, 0.2); border: 1px solid rgba(52, 211, 153, 0.3); color: #34d399; transition: all 0.3s ease; padding: 6px 12px;">Fast only</button>
+                        <button type="button" class="btn btn-sm" id="clear-sources" style="background: rgba(248, 113, 113, 0.2); border: 1px solid rgba(248, 113, 113, 0.3); color: #f87171; transition: all 0.3s ease; padding: 6px 12px;">Clear</button>
+                    </div>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;">
+                    {% for source in sources %}
+                    <div style="display: flex; align-items: center;">
+                        <input
+                            class="form-check-input source-checkbox"
+                            type="checkbox"
+                            name="sources"
+                            value="{{ source.name }}"
+                            id="source-{{ loop.index }}"
+                            data-fast="{% if source.name in fast_background_sources %}true{% else %}false{% endif %}"
+                            {% if source.enabled %}checked{% endif %}
+                            {% if not source.enabled %}disabled{% endif %}
+                            style="width: 18px; height: 18px; margin-right: 10px; cursor: pointer;">
+                        <label class="form-check-label" for="source-{{ loop.index }}" style="cursor: pointer; {% if not source.enabled %}opacity: 0.5;{% endif %}">
+                            <span style="font-weight: 500;">{{ source.name }}</span>
+                            <span style="color: rgba(255, 255, 255, 0.5); font-size: 12px; display: block;">{{ source.region }}</span>
+                        </label>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div style="display: flex; gap: 12px; flex-wrap: wrap; justify-content: center;">
+                <button class="btn btn-primary" type="submit" name="search_mode" value="full" style="flex: 1; min-width: 200px; padding: 12px 24px; font-size: 16px; font-weight: 600;">
+                    🔍 Search All Sources
+                </button>
+                <button class="btn btn-primary" type="submit" name="search_mode" value="fast" style="flex: 1; min-width: 200px; padding: 12px 24px; font-size: 16px; font-weight: 600; background: linear-gradient(135deg, rgba(52, 211, 153, 0.8) 0%, rgba(34, 197, 94, 0.8) 100%); box-shadow: 0 10px 25px rgba(52, 211, 153, 0.2);">
+                    ⚡ Quick Search
+                </button>
+            </div>
+            <p style="text-align: center; color: rgba(255, 255, 255, 0.6); font-size: 13px; margin-top: 16px;">
+                Quick search queries {{ fast_background_sources|sort|join(", ") }} only. Use Search All Sources for comprehensive results.
+            </p>
+        </form>
+    </div>
+</div>
+
+<script>
+const country = document.getElementById("country");
+const region = document.getElementById("region");
+country.addEventListener("change", function () {
+    if (country.value) {
+        region.value = "";
+    }
+});
+region.addEventListener("change", function () {
+    if (region.value) {
+        country.value = "";
+    }
+});
+document.getElementById("select-all-sources").addEventListener("click", function () {
+    document.querySelectorAll(".source-checkbox:not(:disabled)").forEach(function (input) {
+        input.checked = true;
+    });
+});
+document.getElementById("select-fast-sources").addEventListener("click", function () {
+    document.querySelectorAll(".source-checkbox:not(:disabled)").forEach(function (input) {
+        input.checked = input.dataset.fast === "true";
+    });
+});
+document.getElementById("clear-sources").addEventListener("click", function () {
+    document.querySelectorAll(".source-checkbox:not(:disabled)").forEach(function (input) {
+        input.checked = false;
+    });
+});
+</script>
+
+</body>
+</html>

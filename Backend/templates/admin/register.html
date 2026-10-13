@@ -1,0 +1,52 @@
+{% extends "admin/auth_base.html" %}
+{% block title %}Create account{% endblock %}
+
+{% block card %}
+{% if success %}
+    <div class="auth-status">
+        <div class="badge ok" aria-hidden="true">✓</div>
+        <h2>Account created</h2>
+        <p>{{ success }}</p>
+        <a href="/admin/login" class="auth-submit">Sign in</a>
+    </div>
+{% else %}
+    <h2>Create your account</h2>
+    <p class="auth-sub">Free to join. Search, compare and export regulator data in minutes.</p>
+    {% if error %}<div class="auth-alert error" role="alert">{{ error }}</div>{% endif %}
+    <form method="post" action="/admin/register" autocomplete="on">
+        <div class="auth-field">
+            <label for="email">Work email</label>
+            <div class="auth-input">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16v12H4z"/><path d="m4 7 8 6 8-6"/></svg>
+                <input id="email" name="username" type="email" value="{{ username }}"
+                       autocomplete="email" required autofocus placeholder="you@company.com">
+            </div>
+        </div>
+        <div class="auth-field">
+            <label for="password">Password</label>
+            <div class="auth-input">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+                <input id="password" name="password" type="password" autocomplete="new-password"
+                       required minlength="12" placeholder="At least 12 characters">
+                <button type="button" class="reveal" aria-label="Show password" aria-pressed="false">Show</button>
+            </div>
+            <div class="auth-strength" data-strength-for="password" aria-live="polite">
+                <div class="bar"><div class="fill"></div></div><span class="label"></span>
+            </div>
+        </div>
+        <div class="auth-field">
+            <label for="confirm_password">Confirm password</label>
+            <div class="auth-input">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12l4 4 10-10"/></svg>
+                <input id="confirm_password" name="confirm_password" type="password" autocomplete="new-password"
+                       required minlength="12" placeholder="Type it again">
+                <button type="button" class="reveal" aria-label="Show password" aria-pressed="false">Show</button>
+            </div>
+        </div>
+        <button type="submit" class="auth-submit">Create account</button>
+    </form>
+    <div class="auth-foot">
+        <span>Already have an account? <a href="/admin/login">Sign in</a></span>
+    </div>
+{% endif %}
+{% endblock %}

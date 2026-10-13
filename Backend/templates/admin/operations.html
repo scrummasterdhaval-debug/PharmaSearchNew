@@ -1,0 +1,145 @@
+{% extends "admin/page.html" %}
+{% import "admin/_macros.html" as ui %}
+{% block title %}Operations{% endblock %}
+{% block heading %}Operations{% endblock %}
+{% block subheading %}Start a harvest or a re-check, and watch what is running{% endblock %}
+
+{% block main %}
+<div class="panel-columns">
+    <section class="panel">
+        <header><h2>Run a harvest</h2><span class="hint">writes to the database</span></header>
+        <div class="panel-body">
+            <form method="post" action="/admin/operations/harvest" class="stack">
+                <label for="h-sources">Sources</label>
+                <select id="h-sources" name="sources" multiple size="8">
+                    {% for connector in connectors %}
+                        <option value="{{ connector.name }}">{{ connector.name }}</option>
+                    {% endfor %}
+                </select>
+                <p class="field-hint">Select none to run every enabled source.</p>
+
+                <label for="h-molecules">Molecules</label>
+                <input id="h-molecules" type="text" name="molecules"
+                       placeholder="metformin, ibuprofen — blank for the whole vocabulary">
+
+                <label for="h-limit">Or the first N molecules</label>
+                <input id="h-limit" type="number" name="molecule_limit" min="1" max="5000" placeholder="e.g. 25">
+
+                <label class="check">
+                    <input type="checkbox" name="resume" value="1" checked>
+                    Skip source and molecule pairs already harvested
+                </label>
+
+                <button class="btn-primary" type="submit">Start harvest</button>
+            </form>
+        </div>
+    </section>
+
+    <section class="panel">
+        <header><h2>Re-check one molecule</h2><span class="hint">runs the live connectors</span></header>
+        <div class="panel-body">
+            <form method="post" action="/admin/operations/search" class="stack">
+                <label for="s-substance">Active substance</label>
+                <input id="s-substance" type="text" name="substance" required placeholder="e.g. atorvastatin">
+
+                <label for="s-mode">Mode</label>
+                <select id="s-mode" name="mode">
+                    <option value="fast">Fast — skips the slow registers</option>
+                    <option value="full">Full — every source, takes longer</option>
+                </select>
+
+                <button class="btn-primary" type="submit">Start search job</button>
+                <p class="field-hint">Opens the existing job page, where progress is reported per source.</p>
+            </form>
+        </div>
+    </section>
+
+    <section class="panel">
+        <header><h2>Rebuild evidence</h2><span class="hint">reads no source</span></header>
+        <div class="panel-body">
+            <form method="post" action="/admin/operations/evidence-backfill" class="stack">
+                <p class="field-hint">
+                    Records what each stored value rests on for rows saved before the
+                    save path did it itself. Rows saved since already carry their own,
+                    and a second pass refreshes rather than duplicates, so this is safe
+                    to re-run.
+                </p>
+                <button class="btn-primary" type="submit">Rebuild evidence</button>
+            </form>
+        </div>
+    </section>
+</div>
+
+<section class="panel">
+    <header>
+        <h2>Tasks</h2>
+        <span class="hint">{{ tasks | selectattr("status", "equalto", "running") | list | length }} running · this list lives for the life of the server process</span>
+    </header>
+    <div class="table-scroll">
+        <table class="admin-table">
+            <thead>
+                <tr>
+                    <th>Started</th><th>What</th><th>By</th><th>Status</th>
+                    <th class="num">Pairs</th><th class="num">Rows</th><th>Now on</th><th></th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for task in tasks %}
+                <tr>
+                    <td class="mono">{{ task.started_at[:19] }}</td>
+                    <td>{{ task.label }}</td>
+                    <td>{{ task.started_by }}</td>
+                    <td>
+                        {% if task.cancelling %}
+                            <span class="pill degraded">stopping</span>
+                        {% elif task.status == 'running' %}
+                            <span class="pill healthy">running</span>
+                        {% elif task.status == 'finished' %}
+                            <span class="pill neutral">finished</span>
+                        {% elif task.status == 'cancelled' %}
+                            <span class="pill empty">cancelled</span>
+                        {% else %}
+                            <span class="pill down" title="{{ task.error }}">failed</span>
+                        {% endif %}
+                    </td>
+                    <td class="num">{{ ui.count(task.pairs_done) }}</td>
+                    <td class="num">{{ ui.count(task.rows) }}</td>
+                    <td class="mono truncate">{{ task.last_source }}{% if task.last_molecule %} · {{ task.last_molecule }}{% endif %}</td>
+                    <td>
+                        {% if task.status == 'running' and not task.cancelling %}
+                            <form method="post" action="/admin/operations/cancel">
+                                <input type="hidden" name="task_id" value="{{ task.task_id }}">
+                                <button class="btn-quiet-inline" type="submit">Cancel</button>
+                            </form>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% else %}
+                <tr><td colspan="8" class="empty">Nothing has been started from here yet.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="panel">
+    <header><h2>Recent search jobs</h2></header>
+    <div class="table-scroll">
+        <table class="admin-table">
+            <thead><tr><th>Created</th><th>Substance</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+            {% for job in jobs %}
+                <tr>
+                    <td class="mono">{{ (job.created_at or '')[:19] }}</td>
+                    <td>{{ job.substance }}</td>
+                    <td><span class="pill {{ 'healthy' if job.status == 'done' else 'neutral' }}">{{ job.status }}</span></td>
+                    <td><a class="link" href="/search_jobs/{{ job.job_id }}">Open</a></td>
+                </tr>
+            {% else %}
+                <tr><td colspan="4" class="empty">No search jobs recorded.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

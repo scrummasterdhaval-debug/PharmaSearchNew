@@ -1,0 +1,91 @@
+# PharmaSearch on one server, with HTTPS.
+#
+#   docker compose up -d --build
+#
+# Caddy answers on 80 and 443, gets a certificate for the domain in .env from
+# Let's Encrypt, renews it, and passes requests to the application, which is
+# not published on any port of its own.
+#
+# .env holds PHARMASEARCH_DOMAIN and TLS_EMAIL, the two values Compose fills in
+# below. secrets.env holds the sign-in and the session key, and is mounted into
+# the container for the application to read itself.
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PHARMASEARCH_ENV: production
+      PHARMASEARCH_TRUSTED_PROXY: "1"
+      PHARMASEARCH_FORCE_HTTPS: "1"
+      PHARMASEARCH_ALLOWED_HOSTS: ${PHARMASEARCH_DOMAIN}
+      PHARMASEARCH_DB_PATH: /data/pharmasearch.db
+      PHARMASEARCH_REGISTER_DIR: /data/open_registers
+      PHARMASEARCH_BACKUP_DIR: /data/backups
+      PHARMASEARCH_LOG_DIR: /data/logs
+    volumes:
+      - pharmasearch-data:/data
+      # The application reads this file itself. Compose never parses it, so
+      # the $ signs in a scrypt hash arrive as written.
+      - ./secrets.env:/app/.env:ro
+    expose: ["8080"]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [app]
+    ports: ["80:80", "443:443"]
+    environment:
+      PHARMASEARCH_DOMAIN: ${PHARMASEARCH_DOMAIN}
+      TLS_EMAIL: ${TLS_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+  # A copy of the database every night, thirty kept. The register indexes are
+  # not backed up: they are copies of regulators' files and rebuild themselves.
+  # Only an existing database is copied: sqlite3 opening a missing one would
+  # create it, owned by root, before the app has started.
+  backup:
+    image: alpine:3
+    restart: unless-stopped
+    depends_on: [app]
+    volumes:
+      - pharmasearch-data:/data
+      - ./backups:/backups
+    command: >
+      sh -c "apk add --no-cache sqlite >/dev/null &&
+             while true; do
+               [ -s /data/pharmasearch.db ] && sqlite3 /data/pharmasearch.db \".backup '/backups/pharmasearch-$$(date +%%Y%%m%%d-%%H%%M).db'\" || true;
+               ls -1t /backups/pharmasearch-*.db 2>/dev/null | tail -n +31 | xargs -r rm --;
+               sleep 86400;
+             done"
+
+  # The three jobs that keep the data current, on one clock:
+  #   every day 03:00  download any register past its own cadence
+  #   Sunday    02:00  re-ask the live regulators about stored molecules
+  #   Monday    10:00  back the store up, then repair links MHRA has deleted
+  # It shares the application's disk, so what it fetches is what the site
+  # serves. The Windows scheduled tasks do the same three on a laptop.
+  jobs:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on: [app]
+    environment:
+      PHARMASEARCH_DB_PATH: /data/pharmasearch.db
+      PHARMASEARCH_REGISTER_DIR: /data/open_registers
+      PHARMASEARCH_BACKUP_DIR: /data/backups
+      PHARMASEARCH_LOG_DIR: /data/logs
+    volumes:
+      - pharmasearch-data:/data
+      - ./secrets.env:/app/.env:ro
+    command: ["python", "tools/scheduled_jobs.py"]
+
+volumes:
+  pharmasearch-data:
+  caddy-data:
+  caddy-config:
