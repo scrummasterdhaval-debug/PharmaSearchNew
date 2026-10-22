@@ -37,6 +37,7 @@ from services.search_pipeline import (
     COUNTRY_SOURCE_DEFAULTS,
     COUNTRY_OPTIONS,
     DEFAULT_SOURCES,
+    REGION_MEMBERS,
     REGION_OPTIONS,
     combined_search,
     enriched_cached_results,
@@ -1179,17 +1180,26 @@ def search_page(
     country_summary = ", ".join(
         f"{h(country)}: {count}" for country, count in sorted(country_counts.items())
     )
-    country_options = option_tags(
-        merged_options(unique_values(all_rows, "country"), COUNTRY_OPTIONS),
-        country,
-        "All countries",
-    )
+    # Region, then source, then country: each list only offers what the
+    # choices before it leave in the results, so a region shows its own
+    # sources and countries, and a source its own countries.
     region_options = option_tags(
         merged_options(unique_values(all_rows, "region"), REGION_OPTIONS),
         region,
         "All regions",
     )
-    source_options = option_tags(unique_values(all_rows, "source"), source, "All sources")
+
+    def in_region(row: dict[str, Any]) -> bool:
+        return (
+            not region
+            or region == "ALL"
+            or row.get("region") in REGION_MEMBERS.get(region, {region})
+        )
+
+    region_rows = [row for row in all_rows if in_region(row)]
+    source_options = option_tags(unique_values(region_rows, "source"), source, "All sources")
+    source_rows = [row for row in region_rows if not source or row.get("source") == source]
+    country_options = option_tags(unique_values(source_rows, "country"), country, "All countries")
     formatted_all_rows = [formatted_result_row(row, searched_substance=substance) for row in all_rows]
     status_options = option_tags(
         unique_values(formatted_all_rows, "registration_status"),
@@ -1447,6 +1457,20 @@ def search_page(
             <input type="hidden" name="search_mode" value="{h(normalized_search_mode)}">
             {source_inputs}
         </form>
+        <div class="row g-2 align-items-end mb-3">
+            <div class="col-md-4">
+                <label class="form-label mb-1" for="region-filter">1. Region</label>
+                <select id="region-filter" form="result-filter-form" class="form-select" name="region">{region_options}</select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label mb-1" for="source-filter">2. Source</label>
+                <select id="source-filter" form="result-filter-form" class="form-select" name="source">{source_options}</select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label mb-1" for="country-filter">3. Country</label>
+                <select id="country-filter" form="result-filter-form" class="form-select" name="country">{country_options}</select>
+            </div>
+        </div>
         <div class="d-flex justify-content-between align-items-center mb-2">
             <small id="page-filter-status" class="text-muted">Header filters apply to the displayed results.</small>
             <div class="d-flex gap-2">
@@ -1489,10 +1513,10 @@ def search_page(
                     <th><input form="result-filter-form" class="form-control form-control-sm" name="substance_filter" value="{h(substance_filter)}" placeholder="Filter"></th>
                     <th><input form="result-filter-form" class="form-control form-control-sm" name="product_filter" value="{h(product_filter)}" placeholder="Filter"></th>
                     <th><input form="result-filter-form" class="form-control form-control-sm" name="company_filter" value="{h(company_filter)}" placeholder="Filter"></th>
-                    <th><select id="country-filter" form="result-filter-form" class="form-select form-select-sm" name="country">{country_options}</select></th>
-                    <th><select id="region-filter" form="result-filter-form" class="form-select form-select-sm" name="region">{region_options}</select></th>
+                    <th><input class="form-control form-control-sm page-column-filter" data-column="3" placeholder="Filter"></th>
+                    <th><input class="form-control form-control-sm page-column-filter" data-column="4" placeholder="Filter"></th>
                     <th><select form="result-filter-form" class="form-select form-select-sm" name="status" onchange="this.form.submit()">{status_options}</select></th>
-                    <th><select form="result-filter-form" class="form-select form-select-sm" name="source" onchange="this.form.submit()">{source_options}</select></th>
+                    <th><input class="form-control form-control-sm page-column-filter" data-column="6" placeholder="Filter"></th>
                     <th><input class="form-control form-control-sm page-column-filter" data-column="7" placeholder="Filter"></th>
                     <th><input form="result-filter-form" class="form-control form-control-sm" name="strength_filter" value="{h(strength_filter)}" placeholder="Filter"></th>
                     <th><input form="result-filter-form" class="form-control form-control-sm" name="dosage_form_filter" value="{h(dosage_form_filter)}" placeholder="Filter"></th>
@@ -1525,24 +1549,25 @@ def search_page(
     </div>
     <script>
     const resultFilterForm = document.getElementById("result-filter-form");
-    const countryFilter = document.getElementById("country-filter");
     const regionFilter = document.getElementById("region-filter");
+    const sourceFilter = document.getElementById("source-filter");
+    const countryFilter = document.getElementById("country-filter");
     function submitFilters() {{
         resultFilterForm.submit();
     }}
-    countryFilter.addEventListener("change", function () {{
-        if (countryFilter.value) {{
-            regionFilter.value = "";
-        }}
-        submitFilters();
-    }});
+    // Region, then source, then country: changing one clears the choices
+    // after it, since the server rebuilds their lists for the new choice.
     regionFilter.addEventListener("change", function () {{
-        if (regionFilter.value) {{
-            countryFilter.value = "";
-        }}
+        sourceFilter.value = "";
+        countryFilter.value = "";
         submitFilters();
     }});
-    document.querySelectorAll('select[form="result-filter-form"]:not(#country-filter):not(#region-filter)').forEach(function (control) {{
+    sourceFilter.addEventListener("change", function () {{
+        countryFilter.value = "";
+        submitFilters();
+    }});
+    countryFilter.addEventListener("change", submitFilters);
+    document.querySelectorAll('select[form="result-filter-form"]:not(#country-filter):not(#region-filter):not(#source-filter)').forEach(function (control) {{
         control.addEventListener("change", submitFilters);
     }});
     const pageColumnFilters = document.querySelectorAll(".page-column-filter");
