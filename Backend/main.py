@@ -1180,26 +1180,41 @@ def search_page(
     country_summary = ", ".join(
         f"{h(country)}: {count}" for country, count in sorted(country_counts.items())
     )
-    # Region, then source, then country: each list only offers what the
-    # choices before it leave in the results, so a region shows its own
-    # sources and countries, and a source its own countries.
-    region_options = option_tags(
-        merged_options(unique_values(all_rows, "region"), REGION_OPTIONS),
-        region,
-        "All regions",
-    )
-
-    def in_region(row: dict[str, Any]) -> bool:
-        return (
-            not region
-            or region == "ALL"
-            or row.get("region") in REGION_MEMBERS.get(region, {region})
+    # Region, source and country narrow one another, in any order: each list
+    # offers only the values that go with the other two choices. A search
+    # with one of them set is itself limited to it, so the lists are built
+    # from the search without the three; sources asked recently are reused
+    # from storage rather than asked again, so this costs little.
+    if region or source or country:
+        _, _, facet_rows = filtered_search_results(
+            substance,
+            live=effective_live,
+            sources=sources,
+            live_timeout=live_timeout,
+            live_sources=live_sources,
         )
+    else:
+        facet_rows = all_rows
 
-    region_rows = [row for row in all_rows if in_region(row)]
-    source_options = option_tags(unique_values(region_rows, "source"), source, "All sources")
-    source_rows = [row for row in region_rows if not source or row.get("source") == source]
-    country_options = option_tags(unique_values(source_rows, "country"), country, "All countries")
+    def facet_match(row: dict[str, Any], skip: str) -> bool:
+        if skip != "region" and region and region != "ALL":
+            if row.get("region") not in REGION_MEMBERS.get(region, {region}):
+                return False
+        if skip != "source" and source and row.get("source") != source:
+            return False
+        if skip != "country" and country and row.get("country") != country:
+            return False
+        return True
+
+    def facet_values(field: str, selected_value: str) -> list[str]:
+        values = unique_values([row for row in facet_rows if facet_match(row, field)], field)
+        if selected_value and selected_value not in values:
+            values = [selected_value, *values]
+        return values
+
+    region_options = option_tags(facet_values("region", region), region, "All regions")
+    source_options = option_tags(facet_values("source", source), source, "All sources")
+    country_options = option_tags(facet_values("country", country), country, "All countries")
     formatted_all_rows = [formatted_result_row(row, searched_substance=substance) for row in all_rows]
     status_options = option_tags(
         unique_values(formatted_all_rows, "registration_status"),
@@ -1459,15 +1474,15 @@ def search_page(
         </form>
         <div class="row g-2 align-items-end mb-3">
             <div class="col-md-4">
-                <label class="form-label mb-1" for="region-filter">1. Region</label>
+                <label class="form-label mb-1" for="region-filter">Region</label>
                 <select id="region-filter" form="result-filter-form" class="form-select" name="region">{region_options}</select>
             </div>
             <div class="col-md-4">
-                <label class="form-label mb-1" for="source-filter">2. Source</label>
+                <label class="form-label mb-1" for="source-filter">Source</label>
                 <select id="source-filter" form="result-filter-form" class="form-select" name="source">{source_options}</select>
             </div>
             <div class="col-md-4">
-                <label class="form-label mb-1" for="country-filter">3. Country</label>
+                <label class="form-label mb-1" for="country-filter">Country</label>
                 <select id="country-filter" form="result-filter-form" class="form-select" name="country">{country_options}</select>
             </div>
         </div>
@@ -1555,18 +1570,10 @@ def search_page(
     function submitFilters() {{
         resultFilterForm.submit();
     }}
-    // Region, then source, then country: changing one clears the choices
-    // after it, since the server rebuilds their lists for the new choice.
-    regionFilter.addEventListener("change", function () {{
-        sourceFilter.value = "";
-        countryFilter.value = "";
-        submitFilters();
+    // Each choice narrows the other two lists; the server rebuilds them.
+    [regionFilter, sourceFilter, countryFilter].forEach(function (control) {{
+        control.addEventListener("change", submitFilters);
     }});
-    sourceFilter.addEventListener("change", function () {{
-        countryFilter.value = "";
-        submitFilters();
-    }});
-    countryFilter.addEventListener("change", submitFilters);
     document.querySelectorAll('select[form="result-filter-form"]:not(#country-filter):not(#region-filter):not(#source-filter)').forEach(function (control) {{
         control.addEventListener("change", submitFilters);
     }});
