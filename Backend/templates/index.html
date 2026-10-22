@@ -211,6 +211,35 @@
                     placeholder="e.g. metformin, atorvastatin, semaglutide">
             </div>
 
+            <!-- Optional: narrow the search to a strength and a dosage form. -->
+            <div class="row g-3 mb-4">
+                <div class="col-md-6">
+                    <label class="form-label">💊 Strength <span style="opacity: 0.6; font-weight: 400;">(optional)</span></label>
+                    <input
+                        type="text"
+                        name="strength"
+                        class="form-control"
+                        style="font-size: 16px; padding: 12px 16px;"
+                        placeholder="e.g. 500 mg, 10 mg, 0.5 g">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">🧪 Dosage form <span style="opacity: 0.6; font-weight: 400;">(optional)</span></label>
+                    <input
+                        type="text"
+                        name="dosage_form"
+                        class="form-control"
+                        list="dosage-form-suggestions"
+                        style="font-size: 16px; padding: 12px 16px;"
+                        placeholder="e.g. tablet, capsule, injection">
+                    <datalist id="dosage-form-suggestions">
+                        <option value="Tablet"><option value="Film-coated tablet"><option value="Capsule">
+                        <option value="Injection"><option value="Solution"><option value="Suspension">
+                        <option value="Syrup"><option value="Cream"><option value="Ointment">
+                        <option value="Powder"><option value="Inhaler"><option value="Eye drops">
+                    </datalist>
+                </div>
+            </div>
+
             <!-- One search: every source. With no source list, the search page
                  searches every enabled source, so every country is in the results. -->
             <div style="display: flex; justify-content: center;">

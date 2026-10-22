@@ -38,6 +38,7 @@ from services.search_pipeline import (
     COUNTRY_OPTIONS,
     DEFAULT_SOURCES,
     REGION_MEMBERS,
+    split_searched_strength,
     REGION_OPTIONS,
     combined_search,
     enriched_cached_results,
@@ -790,7 +791,27 @@ def search_page(
     search_mode: str = "fast",
     export_all: bool = False,
     refresh: bool = False,
+    strength: str = "",
+    dosage_form: str = "",
 ):
+    # The search page's optional Strength and Dosage form boxes. A strength
+    # the search understands ("500 mg", "0.5 g") goes after the molecule,
+    # where it is matched by amount; anything else ("10 mg/ml") filters the
+    # strength column as text. A dosage form filters its column: "tablets"
+    # is looked up as "tablet" so it also finds "Film-coated tablet".
+    strength = " ".join(strength.split())
+    if strength and substance.strip():
+        combined = f"{substance.strip()} {strength}"
+        molecule, searched = split_searched_strength(combined)
+        if searched and molecule.strip().lower() == substance.strip().lower():
+            substance = combined
+        elif not strength_filter:
+            strength_filter = strength
+    dosage_form = " ".join(dosage_form.split())
+    if dosage_form and not dosage_form_filter:
+        if len(dosage_form) > 4 and dosage_form.lower().endswith("s"):
+            dosage_form = dosage_form[:-1]
+        dosage_form_filter = dosage_form
     if not substance.strip():
         return HTMLResponse(
             content="""
