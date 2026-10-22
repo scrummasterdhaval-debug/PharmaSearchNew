@@ -1093,10 +1093,10 @@ def search_page(
                 <td>{h(display_row["molecule"])}</td>
                 <td>{h(display_row["product"])}</td>
                 <td>{h(display_row["company"])}</td>
-                <td>{h(display_row["country"])}</td>
                 <td>{h(display_row["region"])}</td>
-                <td>{h(display_row["registration_status"])}</td>
                 <td>{h(display_row["source"])}{view_only_badge}</td>
+                <td>{h(display_row["country"])}</td>
+                <td>{h(display_row["registration_status"])}</td>
                 <td>{product_link}</td>
                 <td>{h(display_row["strength"])}</td>
                 <td>{h(display_row["dosage_form"])}</td>
@@ -1472,20 +1472,6 @@ def search_page(
             <input type="hidden" name="search_mode" value="{h(normalized_search_mode)}">
             {source_inputs}
         </form>
-        <div class="row g-2 align-items-end mb-3">
-            <div class="col-md-4">
-                <label class="form-label mb-1" for="region-filter">Region</label>
-                <select id="region-filter" form="result-filter-form" class="form-select" name="region">{region_options}</select>
-            </div>
-            <div class="col-md-4">
-                <label class="form-label mb-1" for="source-filter">Source</label>
-                <select id="source-filter" form="result-filter-form" class="form-select" name="source">{source_options}</select>
-            </div>
-            <div class="col-md-4">
-                <label class="form-label mb-1" for="country-filter">Country</label>
-                <select id="country-filter" form="result-filter-form" class="form-select" name="country">{country_options}</select>
-            </div>
-        </div>
         <div class="d-flex justify-content-between align-items-center mb-2">
             <small id="page-filter-status" class="text-muted">Header filters apply to the displayed results.</small>
             <div class="d-flex gap-2">
@@ -1500,10 +1486,10 @@ def search_page(
                     <th>{sort_label("substance", "Molecule")}</th>
                     <th>{sort_label("product", "Product Name")}</th>
                     <th>{sort_label("company", "Company")}</th>
-                    <th>{sort_label("country", "Country")}</th>
                     <th>{sort_label("region", "Region")}</th>
-                    <th>{sort_label("status", "Status")}</th>
                     <th>{sort_label("source", "Source")}</th>
+                    <th>{sort_label("country", "Country")}</th>
+                    <th>{sort_label("status", "Status")}</th>
                     <th>Product Details</th>
                     <th>{sort_label("strength", "Strength")}</th>
                     <th>{sort_label("dosage_form", "Dosage Form")}</th>
@@ -1528,10 +1514,10 @@ def search_page(
                     <th><input form="result-filter-form" class="form-control form-control-sm" name="substance_filter" value="{h(substance_filter)}" placeholder="Filter"></th>
                     <th><input form="result-filter-form" class="form-control form-control-sm" name="product_filter" value="{h(product_filter)}" placeholder="Filter"></th>
                     <th><input form="result-filter-form" class="form-control form-control-sm" name="company_filter" value="{h(company_filter)}" placeholder="Filter"></th>
-                    <th><input class="form-control form-control-sm page-column-filter" data-column="3" placeholder="Filter"></th>
-                    <th><input class="form-control form-control-sm page-column-filter" data-column="4" placeholder="Filter"></th>
+                    <th><select id="region-filter" form="result-filter-form" class="form-select form-select-sm" name="region">{region_options}</select></th>
+                    <th><select id="source-filter" form="result-filter-form" class="form-select form-select-sm" name="source">{source_options}</select></th>
+                    <th><select id="country-filter" form="result-filter-form" class="form-select form-select-sm" name="country">{country_options}</select></th>
                     <th><select form="result-filter-form" class="form-select form-select-sm" name="status" onchange="this.form.submit()">{status_options}</select></th>
-                    <th><input class="form-control form-control-sm page-column-filter" data-column="6" placeholder="Filter"></th>
                     <th><input class="form-control form-control-sm page-column-filter" data-column="7" placeholder="Filter"></th>
                     <th><input form="result-filter-form" class="form-control form-control-sm" name="strength_filter" value="{h(strength_filter)}" placeholder="Filter"></th>
                     <th><input form="result-filter-form" class="form-control form-control-sm" name="dosage_form_filter" value="{h(dosage_form_filter)}" placeholder="Filter"></th>
