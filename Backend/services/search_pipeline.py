@@ -912,9 +912,20 @@ def normalized_tokens(value: object) -> list[str]:
 
 
 SEARCHED_STRENGTH = re.compile(
-    r"^(?P<molecule>.*?\D)\s+(?P<amount>\d+(?:[.,]\d+)?)\s*(?P<unit>mg|g|mcg|µg|ug|microgram|micrograms|ml|%|iu)?\.?$",
+    r"^(?P<molecule>.*?\D)\s+(?P<amount>\d+(?:[.,]\d+)?)\s*"
+    # A mass, optionally per a volume or a dose ("10 mg/ml", "250 mg/5 ml",
+    # "100 mcg/dose"), or a volume, a percentage or international units.
+    r"(?P<unit>(?:mg|g|mcg|µg|ug|microgram|micrograms|iu)"
+    r"(?:\s*/\s*(?:\d+(?:[.,]\d+)?\s*)?(?:ml|l|dose|actuation|g|h))?"
+    r"|ml|%|iu)?\.?$",
     re.IGNORECASE,
 )
+# A concentration in a row's text: "10 mg/ml", "50 mg / 5 ml", "0.5 g/ml".
+_CONCENTRATION = re.compile(
+    r"(\d*[.,]?\d+)\s*(mg|g|mcg|µg|μg|ug|microgram)\s*/\s*(\d*[.,]?\d+)?\s*(ml|l)\b",
+    re.IGNORECASE,
+)
+_VOLUME_IN_ML = {"ml": 1.0, "l": 1000.0}
 _UNIT_IN_MG = {"g": 1000.0, "mg": 1.0, "mcg": 0.001, "µg": 0.001, "ug": 0.001, "microgram": 0.001, "micrograms": 0.001}
 # ".8 g" is how the FDA writes 0.8 g.
 _AMOUNT = re.compile(r"(\d*[.,]?\d+)\s*(mg|g|mcg|µg|μg|ug|microgram)?\b", re.IGNORECASE)
@@ -931,7 +942,7 @@ def split_searched_strength(term: object) -> tuple[str, str]:
     match = SEARCHED_STRENGTH.match(text)
     if not match or not match.group("molecule").strip(" +,"):
         return text, ""
-    unit = (match.group("unit") or "").lower()
+    unit = re.sub(r"\s+", "", (match.group("unit") or "").lower())
     return match.group("molecule").strip(" +,"), f"{match.group('amount')}{(' ' + unit) if unit else ''}"
 
 
@@ -952,6 +963,8 @@ def matches_searched_strength(row: dict[str, Any], strength: str) -> bool:
     if not strength:
         return True
     amount, _, unit = strength.partition(" ")
+    if "/" in unit:
+        return _matches_concentration(row, amount, unit)
     if unit and unit not in _UNIT_IN_MG:
         return strength.lower() in f"{row.get('strength', '')} {row.get('product', '')}".lower()
     wanted = _in_mg(amount, unit)
@@ -965,6 +978,52 @@ def matches_searched_strength(row: dict[str, Any], strength: str) -> bool:
     if not found:
         return True
     return any(abs(value - wanted) < 1e-6 for value in found)
+
+
+def _per_ml(amount: str, mass_unit: str, per: str | None, volume_unit: str) -> float | None:
+    """A concentration in mg per ml, or None when its units are not mass per volume."""
+    mass = _in_mg(amount, mass_unit)
+    volume = _VOLUME_IN_ML.get(volume_unit.lower())
+    if mass is None or volume is None:
+        return None
+    per_amount = float(per.replace(",", ".")) if per else 1.0
+    if not per_amount:
+        return None
+    return mass / (per_amount * volume)
+
+
+def _compact_strength(text: str) -> str:
+    """Lower case, no spaces, one spelling of micrograms: "100 micrograms/dose" -> "100mcg/dose"."""
+    text = re.sub(r"\s+", "", str(text or "").lower())
+    return re.sub(r"micrograms?|µg|μg|ug(?=/)", "mcg", text)
+
+
+def _matches_concentration(row: dict[str, Any], amount: str, unit: str) -> bool:
+    """A searched concentration ("10 mg/ml") against the row's strength and name.
+
+    Mass per volume is compared in mg per ml, so 10 mg/ml also matches a
+    register's "50 mg/5 ml". Per a dose or per hour is compared as written.
+    A row that states no strength at all is kept, as for a plain strength; a
+    row that states one, but not this concentration, is not.
+    """
+    text = f"{row.get('strength') or ''} {row.get('product') or ''}"
+    mass_unit, _, per = unit.partition("/")
+    per_match = re.fullmatch(r"(\d+(?:[.,]\d+)?)?(ml|l)", per)
+    if per_match:
+        wanted = _per_ml(amount, mass_unit, per_match.group(1), per_match.group(2))
+        found = [
+            value
+            for value in (
+                _per_ml(number, mass, per_number, volume)
+                for number, mass, per_number, volume in _CONCENTRATION.findall(text)
+            )
+            if value is not None
+        ]
+        if found and wanted is not None:
+            return any(abs(value - wanted) < 1e-6 for value in found)
+    elif _compact_strength(f"{amount}{unit}") in _compact_strength(text):
+        return True
+    return not _AMOUNT.findall(text)
 
 
 def contains_all_tokens(value: object, tokens: list[str]) -> bool:

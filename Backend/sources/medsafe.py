@@ -5,6 +5,7 @@ match on one page. The detail page names the sponsor, the composition and,
 unlike most registers, the site behind each manufacturing step.
 """
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout, as_completed
 from typing import Any
 from urllib.parse import quote, urljoin
@@ -20,7 +21,10 @@ MEDSAFE_BASE_URL = "https://www.medsafe.govt.nz"
 PRODUCT_SEARCH_URL = f"{MEDSAFE_BASE_URL}/DbSearch/"
 REQUEST_TIMEOUT = 30
 MAX_RESULTS = 200
-DETAIL_WORKERS = 6
+DETAIL_WORKERS = 4
+# Medsafe refuses (403) a client that asks for a few hundred pages at once, so
+# only the first products get their detail page; the rest keep the listing.
+MAX_DETAIL_PAGES = 80
 DETAIL_DEADLINE_SECONDS = 60
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 FINISHED_PRODUCT_STEP = "manufacture of final dose form"
@@ -61,6 +65,17 @@ def _fallback_rows(substance: str, limit: int = MAX_RESULTS) -> list[dict[str, A
 
 
 LISTING_NAME = re.compile(r"^(?P<name>.+?),\s*(?P<rest>.+?)(?:\s*\((?P<classification>[^)]*)\))?$")
+# "Film coated tablet 800 mg", "Oral suspension 250 mg/5mL": the dose form,
+# then the strength. Combinations are listed as "Tablet  ." with no strength.
+_AMOUNT = r"\d[\d.,]*\s*(?:mg|g|mcg|µg|microgram\w*|IU|U|%|mL)\b"
+LISTING_STRENGTH = re.compile(rf"{_AMOUNT}(?:\s*/\s*(?:{_AMOUNT}|\d*\s*mL\b))*", re.I)
+
+
+def _form_and_strength(rest: str) -> tuple[str, str]:
+    match = LISTING_STRENGTH.search(rest)
+    form = rest[: match.start()] if match else rest
+    return form.strip(" ."), match.group(0) if match else ""
+
 
 
 def parse_search_results(html: str) -> list[dict[str, str]]:
@@ -77,10 +92,13 @@ def parse_search_results(html: str) -> list[dict[str, str]]:
             continue
         listing = _clean_text(link.get_text(" "))
         match = LISTING_NAME.match(listing)
+        dose_form, strength = _form_and_strength(_clean_text(match.group("rest"))) if match else ("", "")
         results.append({
             "listing": listing,
             "trade_name": _clean_text(match.group("name")) if match else listing,
             "classification": _clean_text(match.group("classification")) if match and match.group("classification") else "",
+            "dose_form": dose_form,
+            "strength": strength,
             "ingredients": _clean_text(cells[1].get_text(" ")),
             "sponsor": _clean_text(cells[2].get_text(" ")),
             "status": _clean_text(cells[3].get_text(" ")),
@@ -205,7 +223,9 @@ def build_row(listing: dict[str, str], detail: dict[str, Any]) -> dict[str, Any]
     makers = detail.get("steps", {}).get(FINISHED_PRODUCT_STEP, [])
     api_sites = detail.get("api_sites") or []
     trade_name = detail.get("Trade Name") or listing.get("trade_name", "")
-    strength = detail.get("Strength") or _strength_from(actives)
+    # The listing names the dose form and strength too, so a product whose
+    # detail page could not be read still shows them.
+    strength = detail.get("Strength") or _strength_from(actives) or listing.get("strength", "")
     status = detail.get("Regulatory status") or listing.get("status", "")
     manufacturer = "; ".join(site["name"] for site in makers)
     row: dict[str, Any] = {
@@ -219,7 +239,7 @@ def build_row(listing: dict[str, str], detail: dict[str, Any]) -> dict[str, Any]
         "status": status,
         "classification": detail.get("Classification") or listing.get("classification", ""),
         "strength": strength,
-        "dosage_form": detail.get("Dose Form", ""),
+        "dosage_form": detail.get("Dose Form") or listing.get("dose_form", ""),
         "pack_size": "; ".join(detail.get("packs") or []),
         "registration_number": detail.get("file_ref", ""),
         "registration_date": detail.get("Approval date") or listing.get("approval_date", ""),
@@ -299,17 +319,34 @@ def run_medsafe_search(substance: str, limit: int = MAX_RESULTS) -> list[dict[st
         return []
 
     details: dict[str, dict[str, Any]] = {}
+    failed: list[str] = []
+    deadline = time.monotonic() + DETAIL_DEADLINE_SECONDS
     executor = ThreadPoolExecutor(max_workers=min(DETAIL_WORKERS, len(listings)))
-    futures = {executor.submit(_detail, session, listing["url"]): listing["url"] for listing in listings}
+    futures = {
+        executor.submit(_detail, session, listing["url"]): listing["url"] for listing in listings[:MAX_DETAIL_PAGES]
+    }
     try:
         for future in as_completed(futures, timeout=DETAIL_DEADLINE_SECONDS):
             try:
                 details[futures[future]] = future.result()
             except requests.RequestException as exc:
                 logger.info("Medsafe product page %s unavailable: %s", futures[future], exc)
+                failed.append(futures[future])
     except FuturesTimeout:
         logger.info("Medsafe: product pages not all read before the deadline")
     finally:
         executor.shutdown(wait=False, cancel_futures=True)
+
+    # Pages refused while many were asked at once are asked again one at a
+    # time, for as long as the deadline allows.
+    for url in failed:
+        if time.monotonic() >= deadline:
+            break
+        try:
+            details[url] = _detail(session, url)
+        except requests.RequestException as exc:
+            logger.info("Medsafe product page %s still unavailable: %s", url, exc)
+            if getattr(exc.response, "status_code", None) == 403:
+                break
 
     return [build_row(listing, details.get(listing["url"], {})) for listing in listings]

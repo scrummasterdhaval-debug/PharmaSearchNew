@@ -26,9 +26,9 @@ CORE_CONNECTOR_STATUS: dict[str, dict[str, str]] = {
     },
     "EU MRI Product Index": {
         "tier": "eu_national",
-        "mode": "live_html_or_registry",
-        "status": "partial",
-        "notes": "HMA MRI Product Index for MRP/DCP products. Current official service may return 503; connector parses table rows when available and otherwise provides official registry handoff.",
+        "mode": "live_api_browser",
+        "status": "ready",
+        "notes": "HMA MRI Product Index OData API, queried from the portal in headless Chromium (the API refuses scripted clients). One row per MRP/DCP product with MAH, strength, dose form, ATC, reference and concerned member states.",
     },
     "Health Canada": {
         "tier": "core",

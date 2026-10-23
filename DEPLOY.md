@@ -131,13 +131,35 @@ links" — and the container is not involved.
 
 ## Updating
 
+From the project folder on the server:
+
 ```bash
-cd pharmasearch && git pull && docker compose up -d --build
+./update.sh
 ```
 
-The database, the register copies and the exports are on the `pharmasearch-data`
-volume and are untouched by a rebuild. Roll back with
-`git checkout <previous-commit> && docker compose up -d --build`.
+It fetches the branch the server is on, refuses to overwrite a file changed on
+the server, rebuilds and restarts, and lists what changed. The database, the
+register copies and the exports are on the `pharmasearch-data` volume, and the
+settings in `secrets.env` and `.env` are not in git: none of them is touched.
+Roll back with `git checkout <previous-commit> && docker compose up -d --build`.
+
+### One-time setup when the folder was copied rather than cloned
+
+If the code was uploaded as plain files, `git` does not know the folder yet.
+In the project folder:
+
+```bash
+git init -b main
+git remote add origin https://github.com/<account>/<repository>.git
+git fetch origin main
+git reset --hard origin/main
+chmod +x update.sh
+./update.sh
+```
+
+`git reset --hard` replaces the copied code files with the repository's
+versions; files git does not track -- `secrets.env`, `.env`, backups -- stay as
+they are.
 
 ## Backups
 

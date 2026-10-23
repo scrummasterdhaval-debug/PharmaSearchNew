@@ -1,3 +1,5 @@
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
 from copy import deepcopy
 from functools import lru_cache
@@ -25,6 +27,32 @@ SINGLE_TERM_SOURCES = {
 }
 
 
+# Which sources a live search for a molecule could not include: those that
+# did not answer before the deadline, and those that raised. Kept per
+# molecule for the results page to say what is missing and why.
+_OUTCOMES: dict[str, dict[str, Any]] = {}
+_OUTCOMES_LOCK = threading.Lock()
+OUTCOME_MAX_AGE_SECONDS = 30 * 60
+
+
+def search_outcome(substance: str) -> dict[str, list[str]]:
+    """The sources the latest live search for this molecule left out, if recent."""
+    with _OUTCOMES_LOCK:
+        outcome = _OUTCOMES.get(substance.strip().lower())
+    if not outcome or time.time() - outcome["at"] > OUTCOME_MAX_AGE_SECONDS:
+        return {"timed_out": [], "failed": []}
+    return {"timed_out": list(outcome["timed_out"]), "failed": list(outcome["failed"])}
+
+
+def _remember_outcome(substance: str, timed_out: set[str], failed: set[str]) -> None:
+    with _OUTCOMES_LOCK:
+        _OUTCOMES[substance.strip().lower()] = {
+            "at": time.time(),
+            "timed_out": sorted(timed_out),
+            "failed": sorted(failed - timed_out),
+        }
+
+
 def search_substance(
     substance: str,
     source_names: list[str] | None = None,
@@ -46,6 +74,7 @@ def _search_substance_cached(
         allowed_sources = set(source_key)
 
     jobs = {}
+    failed: set[str] = set()
     executor = ThreadPoolExecutor(max_workers=min(8, max(1, len(SOURCES) * 2)))
     try:
         # A register held locally answers in milliseconds, a website in tens of
@@ -59,10 +88,11 @@ def _search_substance_cached(
             source_name = source["name"].strip().lower()
             search_terms = [substance] if source_name in SINGLE_TERM_SOURCES else get_substance_search_terms(substance)
             for search_term in search_terms:
-                job = executor.submit(_run_source_search, source, search_term, substance)
+                job = executor.submit(_run_source_search, source, search_term, substance, failed)
                 jobs[job] = source["name"]
 
         results = []
+        timed_out: set[str] = set()
         try:
             completed_jobs = as_completed(
                 jobs,
@@ -76,11 +106,13 @@ def _search_substance_cached(
             )
             if pending_sources:
                 logger.warning("Search timeout skipped sources: %s", ", ".join(pending_sources))
+            timed_out.update(pending_sources)
             for job in jobs:
                 if not job.done():
                     job.cancel()
     finally:
         executor.shutdown(wait=False, cancel_futures=True)
+    _remember_outcome(substance, timed_out, failed)
 
     unique = []
     seen = set()
@@ -129,6 +161,7 @@ def _run_source_search(
     source: dict[str, Any],
     search_term: str,
     substance: str,
+    failed: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     try:
         logger.info("Running %s search for %s", source["name"], search_term)
@@ -152,4 +185,6 @@ def _run_source_search(
     except Exception as exc:
         logger.exception("%s search failed", source["name"])
         _record_source_run(source["name"], substance, "PARSER_FAILED", error=str(exc))
+        if failed is not None:
+            failed.add(source["name"])
         return []

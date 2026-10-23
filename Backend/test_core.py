@@ -26,7 +26,7 @@ from services.evidence_assertions import missing_reason_for_row
 from services.evidence_backfill import backfill_evidence
 from sources.ema import _ema_result_from_record, _expand_xlsx_records
 from sources.synonyms import get_substance_search_terms
-from sources.eu_mri import _parse_table_rows, run_eu_mri_search
+from sources.eu_mri import rows_from_products, run_eu_mri_search, search_filter
 from sources.medsafe import _fallback_rows as _medsafe_fallback_rows
 from sources.mhra_document_parser import (
     _document_links_from_html,
@@ -641,41 +641,58 @@ class EMAConnectorTests(unittest.TestCase):
 
 
 class EUMRIConnectorTests(unittest.TestCase):
-    def test_parses_mri_table_rows(self):
-        rows = _parse_table_rows(
-            """
-            <table>
-              <thead>
-                <tr>
-                  <th>Full Name</th>
-                  <th>Active Substance</th>
-                  <th>MAH/Owner</th>
-                  <th>Authorisation Country</th>
-                  <th>Authorisation Status</th>
-                  <th>MRP/DCP/CP Nr.</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><a href="/product/1">Example 10 mg tablets</a></td>
-                  <td>metformin</td>
-                  <td>Example Pharma Ltd</td>
-                  <td>Denmark</td>
-                  <td>Authorised</td>
-                  <td>DK/H/1234/001</td>
-                </tr>
-              </tbody>
-            </table>
-            """,
-            "https://mri-production.cts-mrp.eu/product-search",
-            "metformin",
-        )
+    # One product as the index's ProductSearch API returns it (trimmed).
+    PRODUCT = {
+        "productKey": "MT/H/0651/001",
+        "name": "Dapaglifozin/Metformin Hydrochloride Aurobindo Pharma 5 mg/850 mg film-coated tablets",
+        "outcome": "Positive",
+        "dateOfOutcome": "2026-01-14T00:00:00Z",
+        "maHolder": "Aurobindo Pharma (Malta) Limited\r\nVault 14, Level 2\r\nValletta Waterfront\r\nMalta",
+        "activeSubstances": [
+            {"innName": "Dapagliflozin", "saltName": None, "amount": 5.0, "unitDescription": "mg"},
+            {"innName": "Metformin", "saltName": "hydrochloride", "amount": 850.0, "unitDescription": "mg"},
+        ],
+        "atcCodes": [{"code": "A10BD15"}],
+        "cms": [{"isoCode": "DE", "countryName": "Germany"}, {"isoCode": "IT", "countryName": "Italy"}],
+        "doseForms": [{"doseFormName": "Film-coated tablet"}],
+        "rms": {"isoCode": "MT", "countryName": "Malta"},
+        "typeLevelCategory": {
+            "typeLevelCategory2": "Multiple (Copy) Application",
+            "typeLevelCategory3": "Generic",
+            "typeLevelCategory5": "Prescription Only",
+        },
+        "withdrawalReasons": [],
+    }
+
+    def test_a_product_takes_holder_strength_form_and_member_states(self):
+        rows = rows_from_products([self.PRODUCT], "metformin")
 
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["source"], "EU MRI Product Index")
-        self.assertEqual(rows[0]["country"], "Denmark")
-        self.assertEqual(rows[0]["company"], "Example Pharma Ltd")
-        self.assertEqual(rows[0]["registration_number"], "DK/H/1234/001")
+        row = rows[0]
+        self.assertEqual(row["source"], "EU MRI Product Index")
+        self.assertEqual(row["company"], "Aurobindo Pharma (Malta) Limited")
+        self.assertEqual(row["country"], "Malta")
+        self.assertEqual(row["concerned_member_states"], "Germany, Italy")
+        self.assertEqual(row["strength"], "5 mg/850 mg")
+        self.assertEqual(row["dosage_form"], "Film-coated tablet")
+        self.assertEqual(row["registration_number"], "MT/H/0651/001")
+        self.assertEqual(row["registration_date"], "2026-01-14")
+        self.assertEqual(row["atc_code"], "A10BD15")
+        self.assertEqual(row["status"], "Authorised via MRP/DCP")
+        self.assertEqual(row["active_substance"], "Dapagliflozin + Metformin hydrochloride")
+
+    def test_a_combination_keeps_only_products_naming_every_molecule(self):
+        self.assertEqual(rows_from_products([self.PRODUCT], "metformin + sitagliptin"), [])
+        withdrawn = dict(self.PRODUCT, withdrawalReasons=[{"reason": "x"}])
+        self.assertEqual(rows_from_products([withdrawn], "dapagliflozin")[0]["status"], "Withdrawn (MRP/DCP)")
+
+    def test_a_salt_is_searched_by_its_molecule(self):
+        self.assertIn("'atorvastatin'", search_filter("atorvastatin calcium"))
+
+    def test_an_unreachable_index_hands_off_to_the_portal(self):
+        with patch("sources.eu_mri._query_index", side_effect=RuntimeError("no browser")):
+            rows = run_eu_mri_search("metformin")
+        self.assertEqual(rows[0]["connector_mode"], "manual_registry")
 
     def test_mri_connector_returns_empty_for_blank_query(self):
         self.assertEqual(run_eu_mri_search(""), [])
@@ -1268,6 +1285,31 @@ class MedsafeConnectorTests(unittest.TestCase):
         self.assertTrue(row_relevant_to_substance(row, "sevelamer carbonate"))
         self.assertFalse(row_relevant_to_substance(row, "sevelamer hydrochloride"))
 
+    def test_a_product_whose_page_was_not_read_keeps_the_listing_form_and_strength(self):
+        from sources.medsafe import build_row, parse_search_results
+
+        row = build_row(parse_search_results(self.SEARCH)[0], {})
+        self.assertEqual((row["dosage_form"], row["strength"]), ("Film coated tablet", "800 mg"))
+        self.assertEqual(row["product"], "Renvela 800 mg")
+
+    def test_a_refused_product_page_is_asked_again(self):
+        from sources import medsafe
+
+        detail_calls = []
+
+        def get(url, params=None, **_kwargs):
+            if params:
+                return MagicMock(text=self.SEARCH, raise_for_status=lambda: None)
+            detail_calls.append(url)
+            if len(detail_calls) == 1:
+                raise requests.ConnectionError("busy")
+            return MagicMock(text=self.DETAIL, raise_for_status=lambda: None)
+
+        with patch("requests.Session.get", side_effect=get):
+            rows = medsafe.run_medsafe_search("sevelamer")
+        self.assertEqual(len(detail_calls), 2)
+        self.assertEqual(rows[0]["registration_number"], "TT50-9571")
+
     def test_a_salt_the_register_does_not_file_is_searched_by_its_molecule(self):
         from sources import medsafe
 
@@ -1329,8 +1371,10 @@ class ConnectorStatusTests(unittest.TestCase):
     def test_nmpa_china_is_served_from_its_published_register(self):
         rows = {row["name"]: row for row in connector_status_rows()}
 
-        self.assertEqual(rows["NMPA China"]["status"], "ready")
+        # Like Russia, China reports its register's own state: "ready" only once
+        # the file has been downloaded, which a fresh checkout has not done.
         self.assertEqual(rows["NMPA China"]["mode"], "open_register")
+        self.assertIn(rows["NMPA China"]["status"], {"ready", "not_downloaded_yet", "download_failed"})
 
     def test_nmpa_china_returns_registry_handoff_not_fake_product_rows(self):
         rows = run_nmpa_china_search("metformin")
@@ -4106,6 +4150,24 @@ class SearchedStrengthTests(unittest.TestCase):
             self.assertTrue(matches_searched_strength({"strength": strength, "product": "Renvela"}, "800"), strength)
         for strength in ("2.4 g", "1,6G/SACHET", "400MG/TAB"):
             self.assertFalse(matches_searched_strength({"strength": strength}, "800"), strength)
+
+    def test_a_concentration_after_the_molecule_is_read_as_a_strength(self):
+        from services.search_pipeline import split_searched_strength
+
+        self.assertEqual(split_searched_strength("metformin 10 mg/ml"), ("metformin", "10 mg/ml"))
+        self.assertEqual(split_searched_strength("amoxicillin 250 mg / 5 ml"), ("amoxicillin", "250 mg/5ml"))
+        self.assertEqual(split_searched_strength("salbutamol 100 mcg/dose"), ("salbutamol", "100 mcg/dose"))
+
+    def test_a_concentration_matches_the_same_amount_per_ml_however_it_is_written(self):
+        from services.search_pipeline import matches_searched_strength
+
+        for strength in ("10 mg/ml", "10MG/ML", "50 mg/5 ml", "0.01 g/ml", ""):
+            self.assertTrue(matches_searched_strength({"strength": strength}, "10 mg/ml"), strength)
+        for strength in ("20 mg/ml", "500 mg", "250mg/5ml"):
+            self.assertFalse(matches_searched_strength({"strength": strength}, "10 mg/ml"), strength)
+        for strength in ("100 micrograms/dose", "100mcg/dose", "100 µg/dose"):
+            self.assertTrue(matches_searched_strength({"strength": strength}, "100 mcg/dose"), strength)
+        self.assertFalse(matches_searched_strength({"strength": "200 mcg/dose"}, "100 mcg/dose"))
 
     def test_the_search_asks_the_registers_for_the_molecule_only(self):
         asked = []

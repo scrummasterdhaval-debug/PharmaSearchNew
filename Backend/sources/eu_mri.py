@@ -1,21 +1,56 @@
+"""HMA MRI Product Index: medicines authorised through the mutual-recognition
+and decentralised procedures (MRP/DCP), with every member state concerned.
+
+The portal (mri.cts-mrp.eu/portal) is an Angular app over an OData API at
+mri-production.cts-mrp.eu. The API answers only the portal's own browser
+session (scripted clients are disconnected), after a two-step handshake: GET
+/Authentication returns a token, POSTing it back with the time returns a JWT,
+and every query sends that JWT in a ``YouDontOwnMeV1`` header. So the search
+loads the portal in headless Chromium and runs the same calls from inside it.
+"""
 from __future__ import annotations
 
+import re
 from typing import Any
 from urllib.parse import quote
-
-import requests
-from bs4 import BeautifulSoup
 
 from core.logging_config import get_logger
 from sources.ema import EU_COUNTRIES
 from sources.parser import extract_dosage_form, extract_pack_size, extract_strength
+from sources.salts import base_name
 
 
-MRI_PRODUCT_SEARCH_URL = "https://mri-production.cts-mrp.eu/product-search"
-MRI_LEGACY_SEARCH_URL = "https://mri.cts-mrp.eu/Human/Product/FullTextSearch"
-REQUEST_TIMEOUT = 20
-MAX_RESULTS = 50
+PORTAL_URL = "https://mri.cts-mrp.eu/portal/"
+API_URL = "https://mri-production.cts-mrp.eu/v1/odata"
+MRI_PRODUCT_SEARCH_URL = f"{PORTAL_URL}product-search"
+EXPAND = "activeSubstances,atcCodes,cms,doseForms,rms,typeLevelCategory,withdrawalReasons"
+PAGE_TIMEOUT_MS = 30_000
+FETCH_TIMEOUT_MS = 25_000
+MAX_RESULTS = 200
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140 Safari/537.36"
+)
 logger = get_logger(__name__)
+
+# Runs inside the portal page: the handshake, then one product query.
+_FETCH_SCRIPT = """
+async ([api, filter, expand, top, timeoutMs]) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const token = await (await fetch(api + '/Authentication', {signal: controller.signal})).json();
+    const jwt = await (await fetch(api + '/Authentication', {
+      method: 'POST', signal: controller.signal, headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({authenticationToken: token.authenticationToken, authenticationTime: new Date().toISOString()}),
+    })).json();
+    const query = new URLSearchParams({'$filter': filter, '$expand': expand, '$count': 'true', '$top': String(top), '$orderby': 'productKey'});
+    const response = await fetch(api + '/ProductSearch?' + query, {signal: controller.signal, headers: {YouDontOwnMeV1: jwt.jwt}});
+    return {status: response.status, body: await response.json()};
+  } finally {
+    clearTimeout(timer);
+  }
+}
+"""
 
 
 def _clean_text(value: object) -> str:
@@ -23,7 +58,7 @@ def _clean_text(value: object) -> str:
 
 
 def _source_url(substance: str) -> str:
-    return f"{MRI_PRODUCT_SEARCH_URL}?search={quote(substance.strip())}"
+    return f"{MRI_PRODUCT_SEARCH_URL}?searchTerm={quote(substance.strip())}"
 
 
 def _fallback_row(substance: str) -> list[dict[str, Any]]:
@@ -37,7 +72,7 @@ def _fallback_row(substance: str) -> list[dict[str, Any]]:
             "company": "",
             "country": "European Union",
             "region": "EU",
-            "status": "Open official EU MRI Product Index - service unavailable or JavaScript search requires browser parsing",
+            "status": "Open official EU MRI Product Index - the index did not answer",
             "strength": extract_strength(clean_substance),
             "dosage_form": extract_dosage_form(clean_substance),
             "pack_size": extract_pack_size(clean_substance),
@@ -52,123 +87,149 @@ def _fallback_row(substance: str) -> list[dict[str, Any]]:
     ]
 
 
-def _header_key(value: str) -> str:
-    return (
-        value.lower()
-        .replace("/", " ")
-        .replace("-", " ")
-        .replace("(", " ")
-        .replace(")", " ")
-        .replace(".", " ")
-        .strip()
-    )
+def _odata_text(value: str) -> str:
+    return value.replace("'", "''")
 
 
-def _value(cells: dict[str, str], *names: str) -> str:
-    for name in names:
-        key = _header_key(name)
-        if cells.get(key):
-            return cells[key]
-    for header, value in cells.items():
-        for name in names:
-            if _header_key(name) in header and value:
-                return value
-    return ""
+def search_filter(substance: str) -> str:
+    """Human medicines whose active substances include the molecule.
+
+    The index files salts under the molecule ("Atorvastatin calcium"), so the
+    query asks for the first molecule word; a combination keeps only products
+    naming every molecule (checked in ``rows_from_products``).
+    """
+    words = re.findall(r"[a-z0-9]+", base_name(substance).lower())
+    first = words[0] if words else substance.strip().lower()
+    return f"(domainKey eq 'h') and activeSubstances/any(a: contains(tolower(a/innName), '{_odata_text(first)}'))"
 
 
-def _country_from_cells(cells: dict[str, str]) -> str:
-    country = _value(
-        cells,
-        "authorisation country",
-        "country",
-        "cms",
-        "rms",
-        "member state",
-    )
-    if country in EU_COUNTRIES:
-        return country
+def _amount(value: Any) -> str:
+    if value is None or value == "":
+        return ""
+    return f"{float(value):g}"
+
+
+def _strength(actives: list[dict[str, Any]]) -> str:
+    parts = []
+    for active in actives:
+        amount = _amount(active.get("amount"))
+        unit = _clean_text(active.get("unitDescription"))
+        if amount:
+            parts.append(f"{amount} {unit}".strip())
+    return "/".join(parts)
+
+
+def _active_names(actives: list[dict[str, Any]]) -> str:
+    names = []
+    for active in actives:
+        name = _clean_text(active.get("innName"))
+        salt = _clean_text(active.get("saltName"))
+        if name:
+            names.append(f"{name} {salt}".strip() if salt and salt.lower() not in name.lower() else name)
+    return " + ".join(names)
+
+
+def _country(entry: dict[str, Any] | None) -> str:
+    if not entry:
+        return ""
+    name = _clean_text(entry.get("countryName"))
     for eu_country in EU_COUNTRIES:
-        if eu_country.lower() in country.lower():
+        if eu_country.lower() == name.lower():
             return eu_country
-    return country or "European Union"
+    return name
 
 
-def _parse_table_rows(html: str, source_url: str, substance: str) -> list[dict[str, Any]]:
-    soup = BeautifulSoup(html, "html.parser")
-    results: list[dict[str, Any]] = []
-    for table in soup.select("table"):
-        headers = [_header_key(th.get_text(" ", strip=True)) for th in table.select("thead th")]
-        if not headers:
-            first_row = table.find("tr")
-            if first_row:
-                headers = [_header_key(cell.get_text(" ", strip=True)) for cell in first_row.find_all(["th", "td"])]
-        if not headers:
+def _date(value: Any) -> str:
+    return str(value or "")[:10]
+
+
+def _status(product: dict[str, Any]) -> str:
+    if product.get("withdrawalReasons"):
+        return "Withdrawn (MRP/DCP)"
+    outcome = _clean_text(product.get("outcome"))
+    if outcome.lower() == "positive":
+        return "Authorised via MRP/DCP"
+    return f"MRP/DCP outcome: {outcome}" if outcome else "Listed in MRI Product Index"
+
+
+def rows_from_products(products: list[dict[str, Any]], substance: str) -> list[dict[str, Any]]:
+    """One row per product: the reference member state as its country, the
+    concerned member states alongside."""
+    molecule = re.findall(r"[a-z0-9]+", base_name(substance).lower())
+    rows = []
+    for product in products:
+        actives = product.get("activeSubstances") or []
+        active_names = _active_names(actives)
+        if not all(word in active_names.lower() for word in molecule):
             continue
-        for row in table.select("tbody tr") or table.select("tr")[1:]:
-            values = [_clean_text(cell.get_text(" ", strip=True)) for cell in row.find_all("td")]
-            if len(values) < 2:
-                continue
-            cells = {
-                headers[index]: values[index]
-                for index in range(min(len(headers), len(values)))
-                if headers[index]
+        rms = product.get("rms") or {}
+        concerned = [_country(entry) for entry in product.get("cms") or []]
+        holder_lines = [line.strip() for line in str(product.get("maHolder") or "").splitlines() if line.strip()]
+        category = product.get("typeLevelCategory") or {}
+        name = _clean_text(product.get("name")) or _clean_text(rms.get("productName"))
+        procedure = _clean_text(product.get("productKey"))
+        rows.append(
+            {
+                "substance": active_names or substance,
+                "active_substance": active_names,
+                "source_substance": active_names,
+                "product": name,
+                "company": holder_lines[0] if holder_lines else "",
+                "company_address": ", ".join(holder_lines[1:]),
+                "country": _country(rms) or "European Union",
+                "region": "EU",
+                "status": _status(product),
+                "strength": _strength(actives) or extract_strength(name),
+                "dosage_form": "; ".join(
+                    _clean_text(form.get("doseFormName")) for form in product.get("doseForms") or [] if form.get("doseFormName")
+                ) or extract_dosage_form(name),
+                "pack_size": extract_pack_size(name),
+                "registration_number": procedure,
+                "registration_date": _date(product.get("dateOfOutcome")),
+                "atc_code": ", ".join(
+                    _clean_text(code.get("code")) for code in product.get("atcCodes") or [] if code.get("code")
+                ),
+                "classification": _clean_text(category.get("typeLevelCategory5")),
+                "procedure_type": " / ".join(
+                    _clean_text(category.get(key))
+                    for key in ("typeLevelCategory2", "typeLevelCategory3")
+                    if category.get(key)
+                ),
+                "reference_member_state": _country(rms),
+                "concerned_member_states": ", ".join(country for country in concerned if country),
+                "source": "EU MRI Product Index",
+                "source_url": _source_url(substance),
+                "product_url": _source_url(procedure or substance),
+                "url": _source_url(procedure or substance),
+                "document_type": "MRI Product Index",
             }
-            product = _value(cells, "full name", "product", "product name", "description", "name")
-            active = _value(cells, "active substance", "substance")
-            if substance.lower() not in f"{product} {active}".lower():
-                continue
-            country = _country_from_cells(cells)
-            link = row.find("a", href=True)
-            product_url = requests.compat.urljoin(source_url, link["href"]) if link else source_url
-            results.append(
-                {
-                    "substance": active or substance,
-                    "product": product,
-                    "company": _value(cells, "mah owner", "mah", "marketing authorisation holder", "holder"),
-                    "country": country,
-                    "region": "EU",
-                    "status": _value(cells, "authorisation status", "status") or "Authorised via MRI/MRP/DCP",
-                    "strength": extract_strength(product),
-                    "dosage_form": _value(cells, "pharmaceutical form", "authorised dose form")
-                    or extract_dosage_form(product),
-                    "pack_size": _value(cells, "pack size") or extract_pack_size(product),
-                    "registration_number": _value(cells, "ma nr", "ma number", "mrp dcp cp nr", "procedure number"),
-                    "atc_code": _value(cells, "atc code"),
-                    "source": "EU MRI Product Index",
-                    "source_url": source_url,
-                    "product_url": product_url,
-                    "url": product_url,
-                    "document_type": "MRI Product Index",
-                }
-            )
-            if len(results) >= MAX_RESULTS:
-                return results
-    return results
+        )
+    return rows
 
 
-def run_eu_mri_search(substance: str) -> list[dict[str, Any]]:
+def _query_index(substance: str, limit: int) -> dict[str, Any]:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        try:
+            page = browser.new_page(user_agent=BROWSER_USER_AGENT)
+            page.goto(PORTAL_URL, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
+            return page.evaluate(_FETCH_SCRIPT, [API_URL, search_filter(substance), EXPAND, limit, FETCH_TIMEOUT_MS])
+        finally:
+            browser.close()
+
+
+def run_eu_mri_search(substance: str, limit: int = MAX_RESULTS) -> list[dict[str, Any]]:
     clean_substance = substance.strip()
     if not clean_substance:
         return []
-    urls = [
-        _source_url(clean_substance),
-        f"{MRI_LEGACY_SEARCH_URL}?search={quote(clean_substance)}",
-    ]
-    for url in urls:
-        try:
-            response = requests.get(
-                url,
-                timeout=REQUEST_TIMEOUT,
-                headers={"User-Agent": "Mozilla/5.0"},
-            )
-            if response.status_code >= 500:
-                logger.warning("EU MRI Product Index returned status %s for %s", response.status_code, url)
-                continue
-            response.raise_for_status()
-        except requests.RequestException as exc:
-            logger.warning("EU MRI Product Index request failed for %s: %s", url, exc)
-            continue
-        rows = _parse_table_rows(response.text, response.url, clean_substance)
-        if rows:
-            return rows
-    return _fallback_row(clean_substance)
+    try:
+        answer = _query_index(clean_substance, limit)
+    except Exception as exc:
+        logger.warning("EU MRI Product Index unavailable for %s: %s", clean_substance, exc)
+        return _fallback_row(clean_substance)
+    if answer.get("status") != 200 or not isinstance(answer.get("body"), dict):
+        logger.warning("EU MRI Product Index answered %s for %s", answer.get("status"), clean_substance)
+        return _fallback_row(clean_substance)
+    return rows_from_products(answer["body"].get("value") or [], clean_substance)[:limit]

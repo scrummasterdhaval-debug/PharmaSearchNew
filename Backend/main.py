@@ -19,6 +19,7 @@ from config import BASE_DIR, DB_PATH, EXPORT_DIR
 from core.logging_config import configure_logging, get_logger
 from export_service import write_excel_export
 from repository import (
+    clean_search_term,
     PRODUCT_DETAILS_SEED_PATH,
     initialize_database,
     list_search_jobs,
@@ -31,7 +32,7 @@ from sources.ema_product_parser import NotAnEmaPage, extract_product_page
 from sources.open_registers import warm_open_registers
 from sources.mhra import run_mhra_search
 from sources.mhra_product_parser import extract_mhra_product_page
-from sources.search_engine import COMPLETE_SEARCH_TIMEOUT_SECONDS, search_substance
+from sources.search_engine import COMPLETE_SEARCH_TIMEOUT_SECONDS, search_outcome, search_substance
 from sources.source_registry import connector_metadata
 from services.search_pipeline import (
     COUNTRY_SOURCE_DEFAULTS,
@@ -1346,6 +1347,22 @@ def search_page(
             f'<a href="{h(refresh_href)}">Check them live now</a> (slower).'
             "</p>"
         )
+    # Sources this search could not include, said plainly, so a country that
+    # is missing because its regulator did not answer is not read as having
+    # no products.
+    outcome = search_outcome(split_searched_strength(clean_search_term(substance))[0])
+    missing_note = ""
+    if outcome["timed_out"] or outcome["failed"]:
+        missing = [f"{h(name)} (no answer in time)" for name in outcome["timed_out"]]
+        missing += [f"{h(name)} (error)" for name in outcome["failed"]]
+        retry_href = "/search_page?" + urlencode(common_query + [("refresh", "true")])
+        missing_note = (
+            '<p class="alert alert-warning py-2 mb-2 small">'
+            f'<strong>Not in these results:</strong> {", ".join(missing)}. '
+            "Products from these sources may exist. "
+            f'<a href="{h(retry_href)}">Search them again</a>.'
+            "</p>"
+        )
     eu_coverage_note = ""
     if region == "EU":
         note_class = "success" if len(eu_countries_in_results) == len(EU_COUNTRIES) else "warning"
@@ -1393,8 +1410,29 @@ def search_page(
     <html>
     <head>
         <title>PharmaSearch Results</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
         <style>
+            /* On a phone: buttons wrap instead of running off the screen, and
+               the product name stays pinned on the left while the other
+               columns scroll under it. */
+            @media (max-width: 768px) {{
+                .container, .container-fluid {{ padding-left: 12px; padding-right: 12px; }}
+                .results-toolbar .btn {{ font-size: 0.85rem; padding: 0.35rem 0.6rem; }}
+                .results-table th:nth-child(2),
+                .results-table td:nth-child(2) {{
+                    position: sticky;
+                    left: 0;
+                    z-index: 2;
+                    min-width: 140px !important;
+                    max-width: 42vw;
+                    width: 42vw;
+                    background: #fff;
+                    box-shadow: inset -1px 0 0 #dee2e6;
+                }}
+                .results-table thead tr.table-dark th:nth-child(2) {{ background: #212529; z-index: 4; }}
+                .results-table thead tr.table-secondary th:nth-child(2) {{ background: #e2e3e5; z-index: 4; }}
+            }}
             .results-table {{
                 font-size: 0.84rem;
                 min-width: 3350px;
@@ -1470,11 +1508,12 @@ def search_page(
         {capped_note}
         {view_only_note}
         {store_note}
+        {missing_note}
         {eu_coverage_note}
         {registry_links_section}
-        <div class="d-flex justify-content-between align-items-center mb-3">
+        <div class="results-toolbar d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
             <div>Page <strong>{page}</strong> of <strong>{total_pages}</strong> ({start + 1 if rows else 0}-{min(start + page_size, len(rows))} shown)</div>
-            <div class="d-flex gap-2">
+            <div class="d-flex flex-wrap gap-2">
                 {show_all_button}
                 <a class="btn btn-secondary" href="/">Back</a>
                 <a class="btn btn-outline-success" href="{h(export_all_href)}">Export All Excel</a>
@@ -1493,9 +1532,9 @@ def search_page(
             <input type="hidden" name="search_mode" value="{h(normalized_search_mode)}">
             {source_inputs}
         </form>
-        <div class="d-flex justify-content-between align-items-center mb-2">
+        <div class="results-toolbar d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
             <small id="page-filter-status" class="text-muted">Header filters apply to the displayed results.</small>
-            <div class="d-flex gap-2">
+            <div class="d-flex flex-wrap gap-2">
                 <a class="btn btn-sm btn-outline-secondary" href="{h(clear_href)}">Clear filters</a>
                 <button form="result-filter-form" class="btn btn-sm btn-primary">Apply filters</button>
             </div>
