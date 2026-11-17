@@ -14,7 +14,7 @@ from sources.deep_enrichment import enrich_deep_results
 from sources.ema import EU_COUNTRIES
 from sources.mhra_document_parser import enrich_mhra_document_metadata
 from sources.parser import clean_product_name
-from sources.search_engine import LIVE_SEARCH_TIMEOUT_SECONDS, search_substance
+from sources.search_engine import LIVE_SEARCH_TIMEOUT_SECONDS, completed_live_rows, search_substance
 from core.logging_config import get_logger
 from services.ai_enrichment import attach_ai_enrichment_metadata
 from services.freshness import SourceFreshness, covered_sources, source_freshness
@@ -1499,6 +1499,7 @@ def combined_search(
     live_timeout: int | None = None,
     force_live: bool = False,
     freshness_report: list[SourceFreshness] | None = None,
+    live_first_wait: int | None = None,
 ) -> list[dict[str, Any]]:
     rows = []
     seen = set()
@@ -1518,19 +1519,31 @@ def combined_search(
 
     if include_live:
         selected_live_sources = parse_sources(live_sources) if live_sources is not None else selected_sources
-        if not force_live:
-            # Store first: a source checked recently whose answer the store
-            # kept is not asked again. See services/freshness.py.
-            decisions = source_freshness(substance, selected_live_sources)
-            if freshness_report is not None:
-                freshness_report.extend(decisions)
-            selected_live_sources = [item.source for item in decisions if item.ask_live]
-        live_items = search_substance(
-            substance,
-            source_names=selected_live_sources,
-            timeout_seconds=live_timeout or LIVE_SEARCH_TIMEOUT_SECONDS,
-        ) if selected_live_sources else []
-        store_live_rows_in_background(substance, live_items)
+        timeout = live_timeout or LIVE_SEARCH_TIMEOUT_SECONDS
+        # A search over these sources that ended moments ago -- the one this
+        # page showed early and reloads from once the slow sources answered --
+        # is read back whole rather than asked again.
+        live_items = None if force_live else completed_live_rows(substance, selected_live_sources, timeout)
+        if live_items is None:
+            if not force_live:
+                # Store first: a source checked recently whose answer the store
+                # kept is not asked again. See services/freshness.py.
+                decisions = source_freshness(substance, selected_live_sources)
+                if freshness_report is not None:
+                    freshness_report.extend(decisions)
+                asked = [item.source for item in decisions if item.ask_live]
+            else:
+                asked = selected_live_sources
+            # Rows are stored once the search ends, slow sources included,
+            # even when this page stopped waiting for them.
+            live_items = search_substance(
+                substance,
+                source_names=asked,
+                timeout_seconds=timeout,
+                first_wait_seconds=live_first_wait,
+                on_complete=lambda items: store_live_rows_in_background(substance, items),
+                also_for_sources=selected_live_sources,
+            ) if asked else []
         for item in live_items:
             if is_connector_lookup_fallback(item):
                 continue
@@ -1660,6 +1673,7 @@ def filtered_search_results(
     include_lookup_rows: bool = True,
     force_live: bool = False,
     freshness_report: list[SourceFreshness] | None = None,
+    live_first_wait: int | None = None,
 ) -> tuple[list[dict[str, Any]], list[str], list[dict[str, Any]]]:
     substance, searched_strength = split_searched_strength(clean_search_term(substance))
     selected_sources = parse_sources(sources)
@@ -1687,6 +1701,7 @@ def filtered_search_results(
         live_timeout=live_timeout,
         force_live=force_live,
         freshness_report=freshness_report,
+        live_first_wait=live_first_wait,
     )
     all_rows = suppress_ema_copies([
         row for row in all_rows

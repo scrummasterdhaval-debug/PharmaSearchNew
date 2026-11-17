@@ -1,5 +1,7 @@
 import csv
 import json
+import threading
+import time
 import unittest
 import zipfile
 from datetime import datetime, timedelta, timezone
@@ -389,7 +391,9 @@ class StoreFirstFreshnessTests(unittest.TestCase):
         combined_search("metformin", sources=["MHRA"])
 
         live_mock.assert_not_called()
-        store_mock.assert_called_once_with("metformin", [])
+        # Nothing was asked, so nothing is stored: rows are stored when a
+        # live search ends (search_substance's on_complete).
+        store_mock.assert_not_called()
 
     def _saves(self):
         with repository.get_connection() as conn:
@@ -5274,6 +5278,62 @@ class LatinAmericaTests(unittest.TestCase):
                 {"country": "Italy", "region": "EU", "product": "c", "source": "AIFA Italy"}]
         self.assertEqual([row["country"] for row in filter_rows(rows, region="LA")], ["Brazil", "Colombia"])
         self.assertEqual([row["country"] for row in filter_rows(rows, region="BR")], ["Brazil"])
+
+
+class EarlyResultsTests(unittest.TestCase):
+    """A full search shows what the quick sources found, keeps asking the
+    slow ones, and hands the whole answer over when they are done."""
+
+    def setUp(self):
+        import sources.search_engine as engine
+
+        self.engine = engine
+        self.release = threading.Event()
+
+        def quick(term):
+            return [{"product": "Quick 500 mg", "source": "Quick", "country": "A"}]
+
+        def slow(term):
+            self.release.wait(10)
+            return [{"product": "Slow 500 mg", "source": "Slow", "country": "B"}]
+
+        patches = [
+            patch.object(engine, "SOURCES", [{"name": "Quick", "function": quick}, {"name": "Slow", "function": slow}]),
+            patch.object(engine, "REGISTERS", {}),
+            patch.object(engine, "get_substance_search_terms", lambda substance: [substance]),
+            patch.object(engine, "save_source_run", lambda *args, **kwargs: None),
+        ]
+        for item in patches:
+            item.start()
+            self.addCleanup(item.stop)
+        self.addCleanup(self.release.set)
+        self.substance = f"earlytest{time.time_ns()}"
+
+    def test_the_page_gets_the_quick_rows_and_the_store_gets_everything(self):
+        handed_over = []
+        rows = self.engine.search_substance(
+            self.substance, timeout_seconds=20, first_wait_seconds=1, on_complete=handed_over.append
+        )
+
+        self.assertEqual([row["product"] for row in rows], ["Quick 500 mg"])
+        self.assertEqual(self.engine.live_sources_pending(self.substance), ["Slow"])
+        self.assertIsNone(self.engine.completed_live_rows(self.substance, None, 20))
+
+        self.release.set()
+        for _ in range(50):
+            if not self.engine.live_sources_pending(self.substance) and handed_over:
+                break
+            time.sleep(0.1)
+        self.assertEqual(self.engine.live_sources_pending(self.substance), [])
+        self.assertEqual(sorted(row["product"] for row in handed_over[0]), ["Quick 500 mg", "Slow 500 mg"])
+        # The reload reads the finished search instead of asking again.
+        again = self.engine.completed_live_rows(self.substance, None, 20)
+        self.assertEqual(sorted(row["product"] for row in again), ["Quick 500 mg", "Slow 500 mg"])
+
+    def test_without_a_first_wait_the_search_waits_for_every_source(self):
+        threading.Timer(0.5, self.release.set).start()
+        rows = self.engine.search_substance(self.substance, timeout_seconds=20)
+        self.assertEqual(sorted(row["product"] for row in rows), ["Quick 500 mg", "Slow 500 mg"])
 
 
 class SearchScopeTests(unittest.TestCase):

@@ -4,6 +4,7 @@ from collections import Counter
 from math import ceil
 import re
 from typing import Any
+import json
 from urllib.parse import quote, urlencode
 
 from fastapi import FastAPI, Query, Request
@@ -32,7 +33,7 @@ from sources.ema_product_parser import NotAnEmaPage, extract_product_page
 from sources.open_registers import warm_open_registers
 from sources.mhra import run_mhra_search
 from sources.mhra_product_parser import extract_mhra_product_page
-from sources.search_engine import COMPLETE_SEARCH_TIMEOUT_SECONDS, search_outcome, search_substance
+from sources.search_engine import COMPLETE_SEARCH_TIMEOUT_SECONDS, live_sources_pending, search_outcome, search_substance
 from sources.source_registry import connector_metadata
 from services.search_pipeline import (
     COUNTRY_SOURCE_DEFAULTS,
@@ -130,6 +131,10 @@ async def require_sign_in(request: Request, call_next):
 # Sixteen recent result lists, each for half an hour -- enough for a person to
 # search, sort, filter and then export, without memory growing with every click.
 SEARCH_RESULT_CACHE = BoundedResultCache(max_entries=16, ttl_seconds=30 * 60)
+# How long a full search page waits before showing what has arrived, and how
+# long the region/source/country lists wait for the other regions.
+FIRST_RESULTS_SECONDS = 15
+FACET_WAIT_SECONDS = 5
 APP_BUILD = "UAT-2026-08-01-platform-core"
 
 
@@ -762,6 +767,12 @@ def document_cell(row, display_row, field, label):
     return f'<span class="text-muted">{h(missing_field_value(row, field))}</span>'
 
 
+@app.get("/api/live_pending")
+def live_pending(substance: str, sources: list[str] | None = Query(default=None)):
+    """The sources a search page's live search is still waiting on."""
+    return {"pending": live_sources_pending(substance, sources)}
+
+
 @app.get("/search_page", response_class=HTMLResponse)
 def search_page(
     substance: str,
@@ -794,6 +805,7 @@ def search_page(
     refresh: bool = False,
     strength: str = "",
     dosage_form: str = "",
+    settled: bool = False,
 ):
     # The search page's optional Strength and Dosage form boxes. A strength
     # the search understands ("500 mg", "0.5 g") goes after the molecule,
@@ -872,6 +884,14 @@ def search_page(
     # Brazil and half of Belgium were cut off a moment before they replied, so
     # rosuvastatin + ezetimibe showed 138 products where 233 exist.
     live_timeout = 90 if normalized_search_mode == "full" else 10
+    # A full search shows what has arrived after FIRST_RESULTS_SECONDS; the
+    # slow sources go on answering and the page reloads itself, with
+    # settled=true, once they have (see live_pending below).
+    live_first_wait = (
+        FIRST_RESULTS_SECONDS
+        if normalized_search_mode == "full" and effective_live and not settled and not export_all
+        else None
+    )
     selected_for_live = parse_sources(sources)
     if normalized_search_mode == "full":
         live_sources = selected_for_live
@@ -916,8 +936,15 @@ def search_page(
         include_lookup_rows=True,
         force_live=refresh,
         freshness_report=freshness,
+        live_first_wait=live_first_wait,
     )
-    SEARCH_RESULT_CACHE[
+    base_substance = split_searched_strength(clean_search_term(substance))[0]
+    searched_sources = sources_for_scope(selected_sources, country=country, region=region, source=source)
+    still_searching = live_sources_pending(base_substance, searched_sources) if live_first_wait else []
+    # A page still waiting on slow sources is not kept for the export, which
+    # must have every row.
+    result_cache = {} if still_searching else SEARCH_RESULT_CACHE
+    result_cache[
         result_cache_key(
             substance,
             effective_live,
@@ -1208,12 +1235,15 @@ def search_page(
     # from the search without the three; sources asked recently are reused
     # from storage rather than asked again, so this costs little.
     if region or source or country:
+        # The lists only offer values, so they take what the other regions
+        # answer in a few seconds rather than hold the page for the slowest.
         _, _, facet_rows = filtered_search_results(
             substance,
             live=effective_live,
             sources=sources,
             live_timeout=live_timeout,
             live_sources=live_sources,
+            live_first_wait=FACET_WAIT_SECONDS,
         )
     else:
         facet_rows = all_rows
@@ -1350,9 +1380,34 @@ def search_page(
     # Sources this search could not include, said plainly, so a country that
     # is missing because its regulator did not answer is not read as having
     # no products.
-    outcome = search_outcome(split_searched_strength(clean_search_term(substance))[0])
+    outcome = search_outcome(base_substance)
     missing_note = ""
-    if outcome["timed_out"] or outcome["failed"]:
+    if still_searching:
+        settled_href = "/search_page?" + urlencode(common_query + [("settled", "true")])
+        pending_href = "/api/live_pending?" + urlencode(
+            [("substance", base_substance)] + [("sources", name) for name in searched_sources]
+        )
+        missing_note = (
+            '<p id="still-searching" class="alert alert-info py-2 mb-2 small">'
+            '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>'
+            f'<strong>Still searching:</strong> <span id="still-searching-names">{h(", ".join(still_searching))}</span>. '
+            "The results below are what has arrived so far; this page updates itself when the rest have answered."
+            "</p>"
+            "<script>(function () {"
+            f"var pendingUrl = {json.dumps(pending_href)}, settledUrl = {json.dumps(settled_href)};"
+            "var started = Date.now();"
+            "function check() {"
+            "  if (Date.now() - started > %d) { location.replace(settledUrl); return; }"
+            "  fetch(pendingUrl, {credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (data) {"
+            "    if (!data.pending.length) { location.replace(settledUrl); return; }"
+            "    document.getElementById('still-searching-names').textContent = data.pending.join(', ');"
+            "    setTimeout(check, 4000);"
+            "  }).catch(function () { setTimeout(check, 8000); });"
+            "}"
+            "setTimeout(check, 4000);"
+            "})();</script>" % ((live_timeout + 15) * 1000)
+        )
+    elif outcome["timed_out"] or outcome["failed"]:
         missing = [f"{h(name)} (no answer in time)" for name in outcome["timed_out"]]
         missing += [f"{h(name)} (error)" for name in outcome["failed"]]
         retry_href = "/search_page?" + urlencode(common_query + [("refresh", "true")])
