@@ -5346,6 +5346,31 @@ class EarlyResultsTests(unittest.TestCase):
         self.assertIn("TGA Australia", page)
         self.assertIn("settled=true", page)
 
+    def test_a_narrower_search_takes_its_rows_from_a_wider_one_still_running(self):
+        # All regions first, Germany (here "Slow") still answering; then the
+        # UK alone ("Quick") shows at once instead of waiting behind it.
+        asked = []
+        quick = self.engine.SOURCES[0]["function"]
+        self.engine.SOURCES[0]["function"] = lambda term: asked.append(term) or quick(term)
+        self.engine.search_substance(self.substance, timeout_seconds=20, first_wait_seconds=1)
+        self.assertEqual(self.engine.live_sources_pending(self.substance), ["Slow"])
+
+        started = time.time()
+        rows = self.engine.search_substance(
+            self.substance, source_names=["Quick"], timeout_seconds=20, first_wait_seconds=10
+        )
+        self.assertLess(time.time() - started, 2)
+        self.assertEqual([row["product"] for row in rows], ["Quick 500 mg"])
+        self.assertEqual(self.engine.live_sources_pending(self.substance, ["Quick"]), [])
+        self.assertEqual(len(asked), 1)
+
+        self.release.set()
+        for _ in range(50):
+            if self.engine.completed_live_rows(self.substance, ["Slow"], 20) is not None:
+                break
+            time.sleep(0.1)
+        self.assertEqual([row["product"] for row in self.engine.completed_live_rows(self.substance, ["Slow"], 20)], ["Slow 500 mg"])
+
     def test_without_a_first_wait_the_search_waits_for_every_source(self):
         threading.Timer(0.5, self.release.set).start()
         rows = self.engine.search_substance(self.substance, timeout_seconds=20)

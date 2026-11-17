@@ -61,10 +61,15 @@ MAX_RUNS = 128
 
 
 class _Run:
-    def __init__(self, timeout_seconds: int) -> None:
+    def __init__(self, timeout_seconds: int, source_key: tuple[str, ...] = ()) -> None:
         self.started = time.time()
         self.timeout_seconds = timeout_seconds
+        # The sources asked, lower-case; empty for every source.
+        self.source_key = source_key
         self.results: list[dict[str, Any]] = []
+        # The same rows by the source that returned them, lower-case: a page
+        # for fewer sources takes its own from a wider search still running.
+        self.rows_by_source: dict[str, list[dict[str, Any]]] = {}
         self.pending: dict[str, int] = {}
         self.failed: set[str] = set()
         self.timed_out: set[str] = set()
@@ -105,10 +110,30 @@ def search_substance(
         with _RUNS_LOCK:
             _RUNS[(substance.lower(), alias, timeout_seconds)] = run
     wait = timeout_seconds if first_wait_seconds is None else min(first_wait_seconds, timeout_seconds)
-    run.done.wait(max(0.0, wait - (time.time() - run.started)) if not run.done.is_set() else 0)
+    # Counted from when the search started: a page joining a search already
+    # under way does not wait the first wait over again.
+    _wait_for(run, set(source_key), run.started + wait)
+    return deepcopy(_unique(_rows_of(run, set(source_key))))
+
+
+def _wait_for(run: _Run, wanted: set[str], until: float) -> None:
+    """Until the asked-for sources have answered (all of them when none named)."""
+    if not wanted:
+        run.done.wait(max(0.0, until - time.time()))
+        return
+    while not run.done.is_set() and time.time() < until:
+        with run.lock:
+            waiting = any(count > 0 for name, count in run.pending.items() if name.lower() in wanted)
+        if not waiting:
+            return
+        run.done.wait(min(0.25, max(0.0, until - time.time())))
+
+
+def _rows_of(run: _Run, wanted: set[str]) -> list[dict[str, Any]]:
     with run.lock:
-        rows = list(run.results)
-    return deepcopy(_unique(rows))
+        if not wanted:
+            return list(run.results)
+        return [row for name, rows in run.rows_by_source.items() if name in wanted for row in rows]
 
 
 def live_sources_pending(substance: str, source_names: list[str] | None = None) -> list[str]:
@@ -137,13 +162,38 @@ def completed_live_rows(
     change of filter or page reads instead of asking the regulators again.
     """
     source_key = tuple(sorted(name.strip().lower() for name in source_names or [] if name.strip()))
+    timeout_seconds = timeout_seconds or LIVE_SEARCH_TIMEOUT_SECONDS
     with _RUNS_LOCK:
-        run = _RUNS.get((substance.strip().lower(), source_key, timeout_seconds or LIVE_SEARCH_TIMEOUT_SECONDS))
+        run = _RUNS.get((substance.strip().lower(), source_key, timeout_seconds))
+        if run is None or not run.done.is_set():
+            run = _covering_run(substance.strip().lower(), source_key, timeout_seconds, finished_only=True)
     if run is None or not run.done.is_set() or time.time() - run.started >= RUN_MAX_AGE_SECONDS:
         return None
-    with run.lock:
-        rows = list(run.results)
-    return deepcopy(_unique(rows))
+    return deepcopy(_unique(_rows_of(run, set(source_key))))
+
+
+def _covering_run(
+    substance: str, source_key: tuple[str, ...], timeout_seconds: int, finished_only: bool = False
+) -> _Run | None:
+    """A recent search for the molecule that asked every source in source_key.
+
+    Searching all regions and then the UK alone, the UK page takes MHRA's
+    rows from the first search -- arrived or on their way -- rather than
+    asking MHRA again and waiting behind the first search's slowest source.
+    Called with _RUNS_LOCK held.
+    """
+    best = None
+    for (name, _, timeout), run in _RUNS.items():
+        if name != substance or timeout != timeout_seconds:
+            continue
+        if finished_only and not run.done.is_set():
+            continue
+        if run.done.is_set() and time.time() - run.started >= RUN_MAX_AGE_SECONDS:
+            continue
+        covers = not run.source_key or (source_key and set(source_key) <= set(run.source_key))
+        if covers and (best is None or run.started > best.started):
+            best = run
+    return best
 
 
 def _run_for(substance: str, source_key: tuple[str, ...], timeout_seconds: int, on_complete: Any) -> _Run:
@@ -153,7 +203,10 @@ def _run_for(substance: str, source_key: tuple[str, ...], timeout_seconds: int, 
         fresh = run is not None and (not run.done.is_set() or time.time() - run.started < RUN_MAX_AGE_SECONDS)
         if fresh:
             return run
-        run = _Run(timeout_seconds)
+        run = _covering_run(substance.lower(), source_key, timeout_seconds)
+        if run is not None:
+            return run
+        run = _Run(timeout_seconds, source_key)
         if on_complete is not None:
             run.on_complete.append(on_complete)
         _RUNS[key] = run
@@ -189,6 +242,7 @@ def _start_run(run: _Run, substance: str, allowed_sources: set[str] | None) -> N
                 rows = job.result()
                 with run.lock:
                     run.results.extend(rows)
+                    run.rows_by_source.setdefault(jobs[job].lower(), []).extend(rows)
                     run.pending[jobs[job]] -= 1
         except TimeoutError:
             with run.lock:
