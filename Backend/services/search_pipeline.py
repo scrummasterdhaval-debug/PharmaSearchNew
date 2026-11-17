@@ -1398,6 +1398,26 @@ def item_matches_selected_sources(item: dict[str, Any], selected_sources: list[s
     return any(country in SOURCE_COUNTRIES.get(source, set()) for source in selected)
 
 
+def _registry_sources_for_scope(selected: list[str], country: str = "", region: str = "") -> list[str]:
+    from sources.source_registry import connector_metadata
+
+    if not (country or region) or region == "ALL":
+        return []
+    wanted_regions = REGION_MEMBERS.get(region, {region}) if region else set()
+    metadata = {item["name"].lower(): item for item in connector_metadata() if item.get("enabled", True)}
+    scoped = []
+    for name in selected:
+        item = metadata.get(name.lower())
+        if item is None:
+            continue
+        if region and item.get("region") not in wanted_regions:
+            continue
+        if country and country not in (item.get("countries") or ()):
+            continue
+        scoped.append(name)
+    return scoped
+
+
 def sources_for_scope(
     selected_sources: list[str],
     country: str = "",
@@ -1407,6 +1427,14 @@ def sources_for_scope(
     selected = parse_sources(selected_sources)
     if source:
         return [source]
+
+    # The connector list says which region each source belongs to and which
+    # countries it covers, so a region or a country searches exactly those
+    # sources (Japan both Japanese ones, the US all four FDA ones). The rules
+    # below remain for scopes the list does not cover.
+    by_registry = _registry_sources_for_scope(selected, country=country, region=region)
+    if by_registry:
+        return by_registry
 
     if region == "EU":
         allowed = {"ema"} | {item.lower() for item in EU_NATIONAL_SOURCES}

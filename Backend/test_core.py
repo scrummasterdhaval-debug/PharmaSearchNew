@@ -5276,6 +5276,37 @@ class LatinAmericaTests(unittest.TestCase):
         self.assertEqual([row["country"] for row in filter_rows(rows, region="BR")], ["Brazil"])
 
 
+class SearchScopeTests(unittest.TestCase):
+    """A region, a country or a source searches exactly the connectors the
+    registry puts there: the main page offers its lists from the registry."""
+
+    def everything(self):
+        from sources.source_registry import connector_metadata
+
+        return [item["name"] for item in connector_metadata() if item.get("enabled", True)]
+
+    def test_a_region_searches_all_of_its_sources_and_no_others(self):
+        self.assertEqual(sorted(sources_for_scope(self.everything(), region="JP")), ["MHLW Japan", "PMDA Japan"])
+        self.assertEqual(
+            sorted(sources_for_scope(self.everything(), region="US")),
+            ["Drugs@FDA", "FDA", "FDA Orange Book", "FDA Purple Book"],
+        )
+        self.assertEqual(sources_for_scope(self.everything(), region="RU"), ["GRLS Russia"])
+        self.assertNotIn("Israel Drug Registry", sources_for_scope(self.everything(), region="AS"))
+
+    def test_a_country_searches_its_own_regulator_and_the_eu_wide_ones(self):
+        self.assertEqual(
+            sorted(sources_for_scope(self.everything(), country="Romania")),
+            ["ANMDMR Romania", "EMA", "EU MRI Product Index"],
+        )
+        self.assertEqual(sorted(sources_for_scope(self.everything(), country="Australia")), ["PBS Australia", "TGA Australia"])
+
+    def test_the_search_page_offers_region_source_and_country(self):
+        html = (Path(__file__).parent / "templates" / "index.html").read_text(encoding="utf-8")
+        for name in ("region", "source", "country"):
+            self.assertIn(f'name="{name}" class="form-select"', html)
+
+
 class KazakhstanTests(unittest.TestCase):
     def test_russian_acids_meet_the_english_search(self):
         from sources.grls_russia import fold, match_text
