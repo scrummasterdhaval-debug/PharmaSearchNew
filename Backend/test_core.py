@@ -5330,6 +5330,22 @@ class EarlyResultsTests(unittest.TestCase):
         again = self.engine.completed_live_rows(self.substance, None, 20)
         self.assertEqual(sorted(row["product"] for row in again), ["Quick 500 mg", "Slow 500 mg"])
 
+    def test_the_results_page_says_what_is_still_coming(self):
+        # A source name with "@" puts "%40" in the page's own address: the
+        # note once fed that address through %-formatting and the page broke.
+        import main
+
+        self.engine.SOURCES[0]["name"] = "Drugs@FDA"
+        self.engine.SOURCES[1]["name"] = "TGA Australia"
+        with patch.object(main, "FIRST_RESULTS_SECONDS", 1):
+            page = main.search_page(
+                self.substance, sources=["Drugs@FDA", "TGA Australia"], search_mode="full",
+                country="", region="", source="",
+            ).body.decode()
+        self.assertIn("Still searching:", page)
+        self.assertIn("TGA Australia", page)
+        self.assertIn("settled=true", page)
+
     def test_without_a_first_wait_the_search_waits_for_every_source(self):
         threading.Timer(0.5, self.release.set).start()
         rows = self.engine.search_substance(self.substance, timeout_seconds=20)

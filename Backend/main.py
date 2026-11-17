@@ -1395,9 +1395,9 @@ def search_page(
             "</p>"
             "<script>(function () {"
             f"var pendingUrl = {json.dumps(pending_href)}, settledUrl = {json.dumps(settled_href)};"
-            "var started = Date.now();"
+            f"var started = Date.now(), giveUpAfter = {(live_timeout + 15) * 1000};"
             "function check() {"
-            "  if (Date.now() - started > %d) { location.replace(settledUrl); return; }"
+            "  if (Date.now() - started > giveUpAfter) { location.replace(settledUrl); return; }"
             "  fetch(pendingUrl, {credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (data) {"
             "    if (!data.pending.length) { location.replace(settledUrl); return; }"
             "    document.getElementById('still-searching-names').textContent = data.pending.join(', ');"
@@ -1405,7 +1405,7 @@ def search_page(
             "  }).catch(function () { setTimeout(check, 8000); });"
             "}"
             "setTimeout(check, 4000);"
-            "})();</script>" % ((live_timeout + 15) * 1000)
+            "})();</script>"
         )
     elif outcome["timed_out"] or outcome["failed"]:
         missing = [f"{h(name)} (no answer in time)" for name in outcome["timed_out"]]
